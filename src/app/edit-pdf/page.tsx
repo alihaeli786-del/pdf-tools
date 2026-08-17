@@ -104,10 +104,11 @@ export default function EditPdfPage() {
   const [textEdits, setTextEdits] = useState<Record<string, TextEdit>>({});
 
   const [moveMode, setMoveMode] = useState(false);
-
+  const [addTextMode, setAddTextMode] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const duplicateCounterRef = useRef(0);
+  const newTextCounterRef = useRef(0);
   const dragRef = useRef<{
     id: string;
     startX: number;
@@ -226,6 +227,51 @@ const duplicateId = `duplicate-${pageNumber}-${duplicateCounterRef.current}`;
 
   setSelectedTextId(duplicateId);
   setMoveMode(false);
+};
+const addNewTextAt = (x: number, y: number) => {
+  newTextCounterRef.current += 1;
+
+  const newId = `new-text-${pageNumber}-${newTextCounterRef.current}`;
+
+  const newBox: TextBox = {
+    id: newId,
+    text: "",
+    left: x,
+    top: y,
+    width: 120,
+    height: 16,
+    angle: 0,
+    fontSize: 14,
+    fontFamily: "Arial",
+    fontName: "Arial",
+    backgroundColor: "transparent",
+    isNew: true,
+  };
+
+  setTextBoxes((current) => [
+    ...current,
+    newBox,
+  ]);
+
+  setTextEdits((current) => ({
+    ...current,
+    [newId]: {
+      text: "",
+      deleted: false,
+      bold: false,
+      italic: false,
+      fontSize: 14,
+      fontFamily: "Arial",
+      color: "#111111",
+      link: "",
+      offsetX: 0,
+      offsetY: 0,
+    },
+  }));
+
+  setSelectedTextId(newId);
+  setMoveMode(false);
+  setAddTextMode(false);
 };
   const createLink = () => {
     if (!selectedBox) return;
@@ -621,11 +667,20 @@ const duplicateId = `duplicate-${pageNumber}-${duplicateCounterRef.current}`;
             return (
               <button
                 key={tool.label}
+                onClick={() => {
+  if (tool.label === "Text") {
+    setAddTextMode((current) => !current);
+    setSelectedTextId(null);
+    setMoveMode(false);
+  }
+}}
                 disabled={!tool.enabled}
                 className={`flex items-center gap-2 rounded-md px-3 py-2 text-sm ${
                   tool.enabled
-                    ? "bg-blue-50 text-blue-700"
-                    : "text-slate-400"
+  ? tool.label === "Text" && addTextMode
+    ? "bg-blue-600 text-white"
+    : "bg-blue-50 text-blue-700"
+  : "text-slate-400"
                 }`}
               >
                 <Icon size={17} />
@@ -703,16 +758,28 @@ const duplicateId = `duplicate-${pageNumber}-${duplicateCounterRef.current}`;
         )}
 
         <div
-          className="relative bg-white shadow-xl"
-          style={{
-            width: pageSize.width,
-            height: pageSize.height,
-          }}
-          onMouseDown={() => {
-            setSelectedTextId(null);
-            setMoveMode(false);
-          }}
-        >
+  className={`relative bg-white shadow-xl ${
+    addTextMode ? "cursor-text" : ""
+  }`}
+  style={{
+    width: pageSize.width,
+    height: pageSize.height,
+  }}
+  onMouseDown={(event) => {
+    if (addTextMode) {
+      const rect = event.currentTarget.getBoundingClientRect();
+
+      const x = event.clientX - rect.left;
+      const y = event.clientY - rect.top;
+
+      addNewTextAt(x, y);
+      return;
+    }
+
+    setSelectedTextId(null);
+    setMoveMode(false);
+  }}
+>
           <canvas
             ref={canvasRef}
             className="absolute left-0 top-0 bg-white"
