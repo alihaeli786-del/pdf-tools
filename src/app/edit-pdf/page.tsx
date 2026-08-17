@@ -289,7 +289,96 @@ const addNewTextAt = (x: number, y: number) => {
       link: url.trim(),
     });
   };
+const groupTextIntoLines = (boxes: TextBox[]): TextBox[] => {
+  if (!boxes.length) return [];
 
+  const sorted = [...boxes].sort((a, b) => {
+    const verticalDifference = a.top - b.top;
+
+    if (Math.abs(verticalDifference) > 3) {
+      return verticalDifference;
+    }
+
+    return a.left - b.left;
+  });
+
+  const grouped: TextBox[] = [];
+
+  for (const box of sorted) {
+    const previous = grouped[grouped.length - 1];
+
+    if (!previous) {
+      grouped.push({ ...box });
+      continue;
+    }
+
+    const sameLine =
+      Math.abs(previous.top - box.top) <=
+      Math.max(previous.height, box.height) * 0.35;
+
+    const previousRight =
+      previous.left + previous.width;
+
+    const gap =
+      box.left - previousRight;
+
+    const closeEnough =
+      gap >= -2 &&
+      gap <=
+        Math.max(
+          previous.fontSize * 1.5,
+          box.fontSize * 1.5,
+          14
+        );
+
+    const similarSize =
+      Math.abs(
+        previous.fontSize - box.fontSize
+      ) <=
+      Math.max(previous.fontSize, box.fontSize) * 0.2;
+
+    const sameFont =
+      previous.fontFamily === box.fontFamily;
+
+    if (
+      sameLine &&
+      closeEnough &&
+      similarSize &&
+      sameFont
+    ) {
+      const needsSpace =
+        gap >
+        Math.max(
+          previous.fontSize * 0.15,
+          1
+        );
+
+      previous.text =
+        previous.text +
+        (needsSpace ? " " : "") +
+        box.text;
+
+      previous.width =
+        Math.max(
+          previousRight,
+          box.left + box.width
+        ) - previous.left;
+
+      previous.height =
+        Math.max(
+          previous.height,
+          box.height
+        );
+
+      previous.id =
+        `${previous.id}-${box.id}`;
+    } else {
+      grouped.push({ ...box });
+    }
+  }
+
+  return grouped;
+};
   const sampleBackgroundColor = (
     context: CanvasRenderingContext2D,
     left: number,
@@ -509,7 +598,7 @@ const addNewTextAt = (x: number, y: number) => {
           }
         );
 
-        setTextBoxes(extractedText);
+        setTextBoxes(groupTextIntoLines(extractedText));
       } catch (err) {
         if (
           err instanceof Error &&
@@ -1054,7 +1143,7 @@ const y = selectedBox.top;
             })
           }
 
-          className="pointer-events-auto absolute z-40 resize-none overflow-hidden border border-blue-500 bg-transparent p-0 outline-none"
+          className="pointer-events-auto absolute z-40 resize-none overflow-hidden border border-blue-500 bg-transparent p-0 outline-none focus:border-transparent"
 
           style={{
             left,
