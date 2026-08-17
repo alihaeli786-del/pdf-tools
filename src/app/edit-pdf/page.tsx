@@ -66,6 +66,7 @@ type PageSize = {
 };
 
 const fontOptions = [
+  "Roboto",
   "Arial",
   "Helvetica",
   "Times New Roman",
@@ -138,8 +139,8 @@ export default function EditPdfPage() {
   const createDefaultEdit = (box: TextBox): TextEdit => ({
     text: box.text,
     deleted: false,
-    bold: false,
-    italic: false,
+    bold: /Bold/i.test(box.fontName),
+    italic: /(Italic|Oblique)/i.test(box.fontName),
     fontSize: box.fontSize,
     fontFamily: box.fontFamily || "Arial",
     color: "#111111",
@@ -581,9 +582,33 @@ const groupTextIntoLines = (boxes: TextBox[]): TextBox[] => {
             const top = transformed[5] - fontHeight;
 
             const textStyle = textContent.styles[item.fontName];
+const commonObjs = page.commonObjs as unknown as {
+  has: (id: string) => boolean;
+  get: (id: string) => {
+    name?: string;
+    loadedName?: string;
+    fallbackName?: string;
+  };
+};
 
-            const fontFamily =
-              textStyle?.fontFamily || item.fontName || "Arial";
+const fontData = commonObjs.has(item.fontName)
+  ? commonObjs.get(item.fontName)
+  : undefined;
+
+const rawFontName =
+  fontData?.name ||
+  fontData?.loadedName ||
+  textStyle?.fontFamily ||
+  item.fontName ||
+  "Arial";
+
+const fontFamily = rawFontName
+  .replace(/^[A-Z]{6}\+/, "")
+  .replace(
+    /[-\s]?(BoldItalic|BoldOblique|Bold|Italic|Oblique)$/i,
+    ""
+  )
+  .trim();
 
             return [
               {
@@ -604,7 +629,7 @@ text: item.str,
                 fontSize: fontHeight,
 
                 fontFamily,
-                fontName: item.fontName,
+fontName: rawFontName,
 
                 backgroundColor: sampleBackgroundColor(
                   context,
@@ -724,12 +749,76 @@ const applyChanges = async () => {
     const originalBytes = await file.arrayBuffer();
 
     const outputPdf = await PDFDocument.load(originalBytes);
+    const fontkitModule = await import("@pdf-lib/fontkit");
+const fontkit = fontkitModule.default;
 
+outputPdf.registerFontkit(fontkit);
+
+const loadFontBytes = async (path: string) => {
+  const response = await fetch(path);
+
+  if (!response.ok) {
+    throw new Error(`Unable to load font: ${path}`);
+  }
+
+  return new Uint8Array(
+    await response.arrayBuffer()
+  );
+};
+
+const [
+  robotoRegularBytes,
+  robotoItalicBytes,
+  robotoBoldBytes,
+  robotoBoldItalicBytes,
+] = await Promise.all([
+  loadFontBytes("/fonts/roboto-400-normal.woff"),
+  loadFontBytes("/fonts/roboto-400-italic.woff"),
+  loadFontBytes("/fonts/roboto-700-normal.woff"),
+  loadFontBytes("/fonts/roboto-700-italic.woff"),
+]);
+
+const [
+  robotoRegularFont,
+  robotoItalicFont,
+  robotoBoldFont,
+  robotoBoldItalicFont,
+] = await Promise.all([
+  outputPdf.embedFont(robotoRegularBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(robotoItalicBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(robotoBoldBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(robotoBoldItalicBytes, {
+    subset: true,
+  }),
+]);
     const pages = outputPdf.getPages();
 
     const chooseFont = (edit: TextEdit) => {
       const family = edit.fontFamily.toLowerCase();
+if (family.includes("roboto")) {
+  if (edit.bold && edit.italic) {
+    return robotoBoldItalicFont;
+  }
 
+  if (edit.bold) {
+    return robotoBoldFont;
+  }
+
+  if (edit.italic) {
+    return robotoItalicFont;
+  }
+
+  return robotoRegularFont;
+}
       const isTimes =
         family.includes("times") ||
         family.includes("georgia") ||
@@ -909,9 +998,12 @@ const applyChanges = async () => {
 
       if (!textPoint) continue;
 
-      const font = await outputPdf.embedFont(
-        chooseFont(edit)
-      );
+      const selectedFont = chooseFont(edit);
+
+const font =
+  typeof selectedFont === "string"
+    ? await outputPdf.embedFont(selectedFont)
+    : selectedFont;
 
       const textColor =
         hexColorToRgb(edit.color);
@@ -1346,17 +1438,17 @@ const y = selectedBox.top;
                   className="max-w-36 rounded border px-2 py-1.5 text-sm"
                   title="Font family"
                 >
-                  <option value={edit.fontFamily}>
-                    {edit.fontFamily}
-                  </option>
+                  <option value={selectedBox.fontFamily}>
+  Original ({selectedBox.fontFamily})
+</option>
 
-                  {fontOptions
-                    .filter((font) => font !== edit.fontFamily)
-                    .map((font) => (
-                      <option key={font} value={font}>
-                        {font}
-                      </option>
-                    ))}
+{fontOptions
+  .filter((font) => font !== selectedBox.fontFamily)
+  .map((font) => (
+    <option key={font} value={font}>
+      {font}
+    </option>
+  ))}
                 </select>
 
                 <input
