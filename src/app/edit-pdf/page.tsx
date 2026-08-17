@@ -31,6 +31,9 @@ import {
 
 type TextBox = {
   id: string;
+  pageNumber: number;
+  viewScale: number;
+  viewRotation: number;
   text: string;
   left: number;
   top: number;
@@ -90,6 +93,7 @@ export default function EditPdfPage() {
   const [rotation, setRotation] = useState(0);
 
   const [loading, setLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [rendering, setRendering] = useState(false);
   const [error, setError] = useState("");
 
@@ -102,7 +106,7 @@ export default function EditPdfPage() {
   const [selectedTextId, setSelectedTextId] = useState<string | null>(null);
 
   const [textEdits, setTextEdits] = useState<Record<string, TextEdit>>({});
-
+  const [editBoxes, setEditBoxes] = useState<Record<string, TextBox>>({});
   const [moveMode, setMoveMode] = useState(false);
   const [addTextMode, setAddTextMode] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -161,6 +165,10 @@ export default function EditPdfPage() {
   const startEditing = (box: TextBox) => {
     setSelectedTextId(box.id);
     setMoveMode(false);
+    setEditBoxes((current) => ({
+  ...current,
+  [box.id]: box,
+}));
 
     setTextEdits((current) => {
       const existing = current[box.id];
@@ -214,7 +222,10 @@ const duplicateId = `duplicate-${pageNumber}-${duplicateCounterRef.current}`;
     ...current,
     duplicateBox,
   ]);
-
+   setEditBoxes((current) => ({
+  ...current,
+  [duplicateId]: duplicateBox,
+}));
   setTextEdits((current) => ({
     ...current,
     [duplicateId]: {
@@ -235,7 +246,10 @@ const addNewTextAt = (x: number, y: number) => {
 
   const newBox: TextBox = {
     id: newId,
-    text: "",
+pageNumber,
+viewScale: scale,
+viewRotation: rotation,
+text: "",
     left: x,
     top: y,
     width: 120,
@@ -252,7 +266,10 @@ const addNewTextAt = (x: number, y: number) => {
     ...current,
     newBox,
   ]);
-
+setEditBoxes((current) => ({
+  ...current,
+  [newId]: newBox,
+}));
   setTextEdits((current) => ({
     ...current,
     [newId]: {
@@ -463,6 +480,7 @@ const groupTextIntoLines = (boxes: TextBox[]): TextBox[] => {
       setTextBoxes([]);
       setSelectedTextId(null);
       setTextEdits({});
+      setEditBoxes({});
     } catch (err) {
       console.error(err);
 
@@ -570,8 +588,10 @@ const groupTextIntoLines = (boxes: TextBox[]): TextBox[] => {
             return [
               {
                 id: `${pageNumber}-${index}`,
-
-                text: item.str,
+pageNumber,
+viewScale: scale,
+viewRotation: rotation,
+text: item.str,
 
                 left,
                 top,
@@ -625,7 +645,380 @@ const groupTextIntoLines = (boxes: TextBox[]): TextBox[] => {
       }
     };
   }, [pdfDoc, pageNumber, scale, rotation]);
+  const cssColorToRgb = (color: string) => {
+  const match = color.match(
+    /rgb\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)/
+  );
 
+  if (!match) {
+    return {
+      r: 1,
+      g: 1,
+      b: 1,
+    };
+  }
+
+  return {
+    r: Number(match[1]) / 255,
+    g: Number(match[2]) / 255,
+    b: Number(match[3]) / 255,
+  };
+};
+const hexColorToRgb = (color: string) => {
+  const hex = color.replace("#", "");
+
+  if (!/^[0-9A-Fa-f]{6}$/.test(hex)) {
+    return {
+      r: 0,
+      g: 0,
+      b: 0,
+    };
+  }
+
+  return {
+    r: parseInt(hex.slice(0, 2), 16) / 255,
+    g: parseInt(hex.slice(2, 4), 16) / 255,
+    b: parseInt(hex.slice(4, 6), 16) / 255,
+  };
+};
+const viewportPointToPdfPoint = async (
+  x: number,
+  y: number,
+  targetPageNumber: number,
+  viewScale: number,
+  viewRotation: number
+) => {
+  if (!pdfDoc) {
+    return null;
+  }
+
+  const page = await pdfDoc.getPage(targetPageNumber);
+
+  const viewport = page.getViewport({
+    scale: viewScale,
+    rotation: viewRotation,
+  });
+
+  const [pdfX, pdfY] = viewport.convertToPdfPoint(x, y);
+
+  return {
+    x: pdfX,
+    y: pdfY,
+  };
+};
+const applyChanges = async () => {
+  if (!file || exporting) return;
+
+  try {
+    setExporting(true);
+    setSelectedTextId(null);
+    setMoveMode(false);
+
+    const {
+      PDFDocument,
+      StandardFonts,
+      rgb,
+      degrees,
+    } = await import("pdf-lib");
+
+    const originalBytes = await file.arrayBuffer();
+
+    const outputPdf = await PDFDocument.load(originalBytes);
+
+    const pages = outputPdf.getPages();
+
+    const chooseFont = (edit: TextEdit) => {
+      const family = edit.fontFamily.toLowerCase();
+
+      const isTimes =
+        family.includes("times") ||
+        family.includes("georgia") ||
+        family.includes("garamond") ||
+        family.includes("cambria");
+
+      const isCourier =
+        family.includes("courier") ||
+        family.includes("mono");
+
+      if (isTimes) {
+        if (edit.bold && edit.italic) {
+          return StandardFonts.TimesRomanBoldItalic;
+        }
+
+        if (edit.bold) {
+          return StandardFonts.TimesRomanBold;
+        }
+
+        if (edit.italic) {
+          return StandardFonts.TimesRomanItalic;
+        }
+
+        return StandardFonts.TimesRoman;
+      }
+
+      if (isCourier) {
+        if (edit.bold && edit.italic) {
+          return StandardFonts.CourierBoldOblique;
+        }
+
+        if (edit.bold) {
+          return StandardFonts.CourierBold;
+        }
+
+        if (edit.italic) {
+          return StandardFonts.CourierOblique;
+        }
+
+        return StandardFonts.Courier;
+      }
+
+      if (edit.bold && edit.italic) {
+        return StandardFonts.HelveticaBoldOblique;
+      }
+
+      if (edit.bold) {
+        return StandardFonts.HelveticaBold;
+      }
+
+      if (edit.italic) {
+        return StandardFonts.HelveticaOblique;
+      }
+
+      return StandardFonts.Helvetica;
+    };
+
+    for (const [id, edit] of Object.entries(textEdits)) {
+      const box = editBoxes[id];
+
+      if (!box) continue;
+
+      const hasChanged =
+        box.isNew ||
+        edit.deleted ||
+        edit.text !== box.text ||
+        edit.offsetX !== 0 ||
+        edit.offsetY !== 0 ||
+        edit.bold ||
+        edit.italic ||
+        Math.abs(edit.fontSize - box.fontSize) > 0.01 ||
+        edit.fontFamily !== box.fontFamily ||
+        edit.color !== "#111111";
+
+      if (!hasChanged) continue;
+
+      const outputPage = pages[box.pageNumber - 1];
+
+      if (!outputPage) continue;
+
+      /*
+       * REMOVE / MASK ORIGINAL TEXT
+       */
+      if (!box.isNew) {
+        const maskTopLeft =
+          await viewportPointToPdfPoint(
+            box.left - 2,
+            box.top - 2,
+            box.pageNumber,
+            box.viewScale,
+            box.viewRotation
+          );
+
+        const maskBottomRight =
+          await viewportPointToPdfPoint(
+            box.left + box.width + 5,
+            box.top +
+              Math.max(
+                box.height * 1.35,
+                box.fontSize * 1.25
+              ) +
+              2,
+            box.pageNumber,
+            box.viewScale,
+            box.viewRotation
+          );
+
+        if (maskTopLeft && maskBottomRight) {
+          const background =
+            cssColorToRgb(box.backgroundColor);
+
+          const maskX = Math.min(
+            maskTopLeft.x,
+            maskBottomRight.x
+          );
+
+          const maskY = Math.min(
+            maskTopLeft.y,
+            maskBottomRight.y
+          );
+
+          const maskWidth = Math.abs(
+            maskBottomRight.x - maskTopLeft.x
+          );
+
+          const maskHeight = Math.abs(
+            maskBottomRight.y - maskTopLeft.y
+          );
+
+          outputPage.drawRectangle({
+            x: maskX,
+            y: maskY,
+            width: maskWidth,
+            height: maskHeight,
+            color: rgb(
+              background.r,
+              background.g,
+              background.b
+            ),
+          });
+        }
+      }
+
+      /*
+       * DELETE = only mask original,
+       * don't draw replacement text.
+       */
+      if (edit.deleted || !edit.text.trim()) {
+        continue;
+      }
+
+      /*
+       * FINAL POSITION OF EDITED / NEW TEXT
+       */
+      const displayLeft =
+        box.left + edit.offsetX;
+
+      const displayTop =
+        box.top + edit.offsetY;
+
+      /*
+       * drawText uses a baseline-like Y position,
+       * so convert near the bottom of the text box.
+       */
+      const textPoint =
+        await viewportPointToPdfPoint(
+          displayLeft,
+          displayTop +
+            Math.max(
+              edit.fontSize,
+              box.height
+            ),
+          box.pageNumber,
+          box.viewScale,
+          box.viewRotation
+        );
+
+      if (!textPoint) continue;
+
+      const font = await outputPdf.embedFont(
+        chooseFont(edit)
+      );
+
+      const textColor =
+        hexColorToRgb(edit.color);
+
+      const pdfFontSize = Math.max(
+        4,
+        edit.fontSize /
+          Math.max(box.viewScale, 0.01)
+      );
+
+      /*
+       * Remove editor viewport rotation.
+       * This leaves the text's intrinsic PDF rotation.
+       */
+      let pdfAngle =
+        box.angle - box.viewRotation;
+
+      while (pdfAngle > 180) {
+        pdfAngle -= 360;
+      }
+
+      while (pdfAngle < -180) {
+        pdfAngle += 360;
+      }
+
+      outputPage.drawText(edit.text, {
+        x: textPoint.x,
+        y: textPoint.y,
+
+        size: pdfFontSize,
+
+        font,
+
+        color: rgb(
+          textColor.r,
+          textColor.g,
+          textColor.b
+        ),
+
+        rotate: degrees(pdfAngle),
+
+        lineHeight:
+          pdfFontSize * 1.15,
+      });
+    }
+
+    /*
+     * SAVE NEW PDF
+     */
+    const pdfBytes =
+      await outputPdf.save();
+
+    const pdfArrayBuffer =
+      pdfBytes.buffer.slice(
+        pdfBytes.byteOffset,
+        pdfBytes.byteOffset +
+          pdfBytes.byteLength
+      ) as ArrayBuffer;
+
+    const blob = new Blob(
+      [pdfArrayBuffer],
+      {
+        type: "application/pdf",
+      }
+    );
+
+    const url =
+      URL.createObjectURL(blob);
+
+    const downloadLink =
+      document.createElement("a");
+
+    downloadLink.href = url;
+
+    const originalName =
+      file.name.replace(
+        /\.pdf$/i,
+        ""
+      );
+
+    downloadLink.download =
+      `${originalName}-edited.pdf`;
+
+    document.body.appendChild(
+      downloadLink
+    );
+
+    downloadLink.click();
+
+    downloadLink.remove();
+
+    setTimeout(() => {
+      URL.revokeObjectURL(url);
+    }, 1000);
+  } catch (err) {
+    console.error(
+      "PDF export error:",
+      err
+    );
+
+    alert(
+      "Unable to apply PDF changes. Please try again."
+    );
+  } finally {
+    setExporting(false);
+  }
+};
   const zoomIn = () => {
     setScale((current) => Math.min(current + 0.2, 3));
   };
@@ -739,12 +1132,20 @@ const groupTextIntoLines = (boxes: TextBox[]): TextBox[] => {
           </div>
 
           <button
-            disabled
-            className="flex cursor-not-allowed items-center gap-2 rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white opacity-60"
-          >
-            <Download size={17} />
-            Apply changes
-          </button>
+  onClick={applyChanges}
+  disabled={exporting}
+  className={`flex items-center gap-2 rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 ${
+    exporting
+      ? "cursor-not-allowed opacity-60"
+      : ""
+  }`}
+>
+  <Download size={17} />
+
+  {exporting
+    ? "Applying..."
+    : "Apply changes"}
+</button>
         </div>
       </header>
 
