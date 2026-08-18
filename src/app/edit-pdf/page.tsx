@@ -745,6 +745,7 @@ const applyChanges = async () => {
       StandardFonts,
       rgb,
       degrees,
+      PDFString,
     } = await import("pdf-lib");
 
     const originalBytes = await file.arrayBuffer();
@@ -1097,7 +1098,66 @@ const font =
           pdfFontSize * 1.15,
       });
     }
+for (const [id, edit] of Object.entries(textEdits)) {
+  const box = editBoxes[id];
 
+  if (!box || !edit.link.trim() || edit.deleted) continue;
+
+  const outputPage = pages[box.pageNumber - 1];
+
+  if (!outputPage) continue;
+
+  const linkLeft = box.left + edit.offsetX;
+  const linkTop = box.top + edit.offsetY;
+
+  const linkWidth = Math.max(
+    box.width,
+    edit.text.length * edit.fontSize * 0.6
+  );
+
+  const linkHeight = Math.max(
+    box.height,
+    edit.fontSize * 1.3
+  );
+
+  const point1 = await viewportPointToPdfPoint(
+    linkLeft,
+    linkTop,
+    box.pageNumber,
+    box.viewScale,
+    box.viewRotation
+  );
+
+  const point2 = await viewportPointToPdfPoint(
+    linkLeft + linkWidth,
+    linkTop + linkHeight,
+    box.pageNumber,
+    box.viewScale,
+    box.viewRotation
+  );
+if (!point1 || !point2) continue;
+  const x1 = Math.min(point1.x, point2.x);
+  const y1 = Math.min(point1.y, point2.y);
+  const x2 = Math.max(point1.x, point2.x);
+  const y2 = Math.max(point1.y, point2.y);
+
+  const linkAnnotation = outputPdf.context.obj({
+    Type: "Annot",
+    Subtype: "Link",
+    Rect: [x1, y1, x2, y2],
+    Border: [0, 0, 0],
+    A: {
+      Type: "Action",
+      S: "URI",
+      URI: PDFString.of(edit.link.trim()),
+    },
+  });
+
+  const linkAnnotationRef =
+    outputPdf.context.register(linkAnnotation);
+
+  outputPage.node.addAnnot(linkAnnotationRef);
+}
     /*
      * SAVE NEW PDF
      */
