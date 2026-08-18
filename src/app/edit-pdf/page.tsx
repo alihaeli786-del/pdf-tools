@@ -67,6 +67,7 @@ type PageSize = {
 
 const fontOptions = [
   "Roboto",
+  "Open Sans",
   "Arial",
   "Helvetica",
   "Times New Roman",
@@ -777,7 +778,17 @@ const [
   loadFontBytes("/fonts/roboto-700-normal.woff"),
   loadFontBytes("/fonts/roboto-700-italic.woff"),
 ]);
-
+const [
+  openSansRegularBytes,
+  openSansItalicBytes,
+  openSansBoldBytes,
+  openSansBoldItalicBytes,
+] = await Promise.all([
+  loadFontBytes("/fonts/open-sans-400-normal.woff"),
+  loadFontBytes("/fonts/open-sans-400-italic.woff"),
+  loadFontBytes("/fonts/open-sans-700-normal.woff"),
+  loadFontBytes("/fonts/open-sans-700-italic.woff"),
+]);
 const [
   robotoRegularFont,
   robotoItalicFont,
@@ -800,6 +811,28 @@ const [
     subset: true,
   }),
 ]);
+const [
+  openSansRegularFont,
+  openSansItalicFont,
+  openSansBoldFont,
+  openSansBoldItalicFont,
+] = await Promise.all([
+  outputPdf.embedFont(openSansRegularBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(openSansItalicBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(openSansBoldBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(openSansBoldItalicBytes, {
+    subset: true,
+  }),
+]);
     const pages = outputPdf.getPages();
 
     const chooseFont = (edit: TextEdit) => {
@@ -819,7 +852,22 @@ if (family.includes("roboto")) {
 
   return robotoRegularFont;
 }
-      const isTimes =
+ if (family.includes("open sans")) {
+  if (edit.bold && edit.italic) {
+    return openSansBoldItalicFont;
+  }
+
+  if (edit.bold) {
+    return openSansBoldFont;
+  }
+
+  if (edit.italic) {
+    return openSansItalicFont;
+  }
+
+  return openSansRegularFont;
+}     
+const isTimes =
         family.includes("times") ||
         family.includes("georgia") ||
         family.includes("garamond") ||
@@ -1435,7 +1483,7 @@ const y = selectedBox.top;
                       fontFamily: event.target.value,
                     })
                   }
-                  className="max-w-36 rounded border px-2 py-1.5 text-sm"
+                  className="w-48 rounded border px-2 py-1.5 text-sm"
                   title="Font family"
                 >
                   <option value={selectedBox.fontFamily}>
