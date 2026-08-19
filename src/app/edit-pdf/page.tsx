@@ -58,6 +58,16 @@ type ImageBox = {
   width: number;
   height: number;
 };
+type WhiteoutBox = {
+  id: string;
+  pageNumber: number;
+  viewScale: number;
+  viewRotation: number;
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+};
 type TextEdit = {
   text: string;
   deleted: boolean;
@@ -117,6 +127,9 @@ export default function EditPdfPage() {
 
   const [textBoxes, setTextBoxes] = useState<TextBox[]>([]);
   const [imageBoxes, setImageBoxes] = useState<ImageBox[]>([]);
+  const [whiteoutBoxes, setWhiteoutBoxes] = useState<WhiteoutBox[]>([]);
+  const [draftWhiteout, setDraftWhiteout] = useState<WhiteoutBox | null>(null);
+  const [selectedWhiteoutId, setSelectedWhiteoutId] = useState<string | null>(null);
   const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
   const [selectedTextId, setSelectedTextId] = useState<string | null>(null);
 
@@ -130,6 +143,7 @@ export default function EditPdfPage() {
   const [typedSignature, setTypedSignature] = useState("");
   const [typedSignatureStyle, setTypedSignatureStyle] = useState(0);
   const [addTextMode, setAddTextMode] = useState(false);
+  const [whiteoutMode, setWhiteoutMode] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -141,6 +155,18 @@ const signatureDrawingRef = useRef(false);
   const duplicateCounterRef = useRef(0);
   const newTextCounterRef = useRef(0);
   const imageCounterRef = useRef(0);
+  const whiteoutCounterRef = useRef(0);
+  const whiteoutDragRef = useRef<{
+  startX: number;
+  startY: number;
+} | null>(null);
+const whiteoutMoveRef = useRef<{
+  id: string;
+  startX: number;
+  startY: number;
+  initialLeft: number;
+  initialTop: number;
+} | null>(null);
   const dragRef = useRef<{
     id: string;
     startX: number;
@@ -168,7 +194,7 @@ const imageResizeRef = useRef<{
     { label: "Forms", icon: FileInput, enabled: false },
     { label: "Images", icon: ImageIcon, enabled: true },
     { label: "Sign", icon: PenLine, enabled: true },
-    { label: "Whiteout", icon: Eraser, enabled: false },
+    { label: "Whiteout", icon: Eraser, enabled: true },
     { label: "Annotate", icon: Highlighter, enabled: false },
     { label: "Shapes", icon: Shapes, enabled: false },
   ];
@@ -177,6 +203,8 @@ const imageResizeRef = useRef<{
     textBoxes.find((box) => box.id === selectedTextId) || null;
 const selectedImageBox =
   imageBoxes.find((imageBox) => imageBox.id === selectedImageId) || null;
+  const selectedWhiteoutBox =
+  whiteoutBoxes.find((box) => box.id === selectedWhiteoutId) || null;
   const deleteSelectedImage = () => {
   if (!selectedImageId) return;
 
@@ -185,6 +213,15 @@ const selectedImageBox =
   );
 
   setSelectedImageId(null);
+};
+const deleteSelectedWhiteout = () => {
+  if (!selectedWhiteoutId) return;
+
+  setWhiteoutBoxes((current) =>
+    current.filter((box) => box.id !== selectedWhiteoutId)
+  );
+
+  setSelectedWhiteoutId(null);
 };
 const handleImageResizeStart = (
   event: React.PointerEvent<HTMLDivElement>
@@ -638,6 +675,163 @@ setEditBoxes((current) => ({
   setSelectedTextId(newId);
   setMoveMode(false);
   setAddTextMode(false);
+};
+const startWhiteout = (
+  event: React.PointerEvent<HTMLDivElement>
+) => {
+  if (!whiteoutMode) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+
+  const rect = event.currentTarget.getBoundingClientRect();
+
+  const x = event.clientX - rect.left;
+  const y = event.clientY - rect.top;
+
+  whiteoutCounterRef.current += 1;
+
+  const newWhiteout: WhiteoutBox = {
+    id: `whiteout-${pageNumber}-${whiteoutCounterRef.current}`,
+    pageNumber,
+    viewScale: scale,
+    viewRotation: rotation,
+    left: x,
+    top: y,
+    width: 0,
+    height: 0,
+  };
+
+  whiteoutDragRef.current = {
+    startX: x,
+    startY: y,
+  };
+
+  setDraftWhiteout(newWhiteout);
+
+  event.currentTarget.setPointerCapture(event.pointerId);
+};
+const moveWhiteout = (
+  event: React.PointerEvent<HTMLDivElement>
+) => {
+  if (!whiteoutMode) return;
+
+  const drag = whiteoutDragRef.current;
+  if (!drag) return;
+
+  const rect = event.currentTarget.getBoundingClientRect();
+
+  const currentX = event.clientX - rect.left;
+  const currentY = event.clientY - rect.top;
+
+  const left = Math.min(drag.startX, currentX);
+  const top = Math.min(drag.startY, currentY);
+
+  const width = Math.abs(currentX - drag.startX);
+  const height = Math.abs(currentY - drag.startY);
+
+  setDraftWhiteout((current) =>
+    current
+      ? {
+          ...current,
+          left,
+          top,
+          width,
+          height,
+        }
+      : null
+  );
+};
+const endWhiteout = (
+  event: React.PointerEvent<HTMLDivElement>
+) => {
+  if (!whiteoutMode) return;
+
+  const currentWhiteout = draftWhiteout;
+
+  whiteoutDragRef.current = null;
+
+  if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+    event.currentTarget.releasePointerCapture(event.pointerId);
+  }
+
+  if (
+    currentWhiteout &&
+    currentWhiteout.width > 2 &&
+    currentWhiteout.height > 2
+  ) {
+    setWhiteoutBoxes((current) => [
+      ...current,
+      currentWhiteout,
+    ]);
+  }
+
+  setDraftWhiteout(null);
+};
+const startWhiteoutMove = (
+  event: React.PointerEvent<HTMLDivElement>,
+  box: WhiteoutBox
+) => {
+  event.preventDefault();
+  event.stopPropagation();
+
+  setSelectedWhiteoutId(box.id);
+  setSelectedTextId(null);
+  setSelectedImageId(null);
+
+  whiteoutMoveRef.current = {
+    id: box.id,
+    startX: event.clientX,
+    startY: event.clientY,
+    initialLeft: box.left,
+    initialTop: box.top,
+  };
+
+  event.currentTarget.setPointerCapture(event.pointerId);
+};
+const moveWhiteoutBox = (
+  event: React.PointerEvent<HTMLDivElement>
+) => {
+  const move = whiteoutMoveRef.current;
+  if (!move) return;
+
+  const box = whiteoutBoxes.find(
+    (currentBox) => currentBox.id === move.id
+  );
+
+  if (!box) return;
+
+  const whiteoutScale = scale / box.viewScale;
+
+  const deltaX =
+    (event.clientX - move.startX) / whiteoutScale;
+
+  const deltaY =
+    (event.clientY - move.startY) / whiteoutScale;
+
+  setWhiteoutBoxes((current) =>
+    current.map((currentBox) =>
+      currentBox.id === move.id
+        ? {
+            ...currentBox,
+            left: move.initialLeft + deltaX,
+            top: move.initialTop + deltaY,
+          }
+        : currentBox
+    )
+  );
+};
+const endWhiteoutMove = (
+  event: React.PointerEvent<HTMLDivElement>
+) => {
+  const move = whiteoutMoveRef.current;
+  if (!move) return;
+
+  whiteoutMoveRef.current = null;
+
+  if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+    event.currentTarget.releasePointerCapture(event.pointerId);
+  }
 };
   const createLink = () => {
     if (!selectedBox) return;
@@ -1694,6 +1888,43 @@ for (const imageBox of imageBoxes) {
     height,
   });
 }
+for (const whiteoutBox of whiteoutBoxes) {
+  const outputPage = outputPdf.getPage(
+    whiteoutBox.pageNumber - 1
+  );
+
+  const topLeft = await viewportPointToPdfPoint(
+    whiteoutBox.left,
+    whiteoutBox.top,
+    whiteoutBox.pageNumber,
+    whiteoutBox.viewScale,
+    whiteoutBox.viewRotation
+  );
+
+  const bottomRight = await viewportPointToPdfPoint(
+    whiteoutBox.left + whiteoutBox.width,
+    whiteoutBox.top + whiteoutBox.height,
+    whiteoutBox.pageNumber,
+    whiteoutBox.viewScale,
+    whiteoutBox.viewRotation
+  );
+
+  if (!topLeft || !bottomRight) continue;
+
+  const x = Math.min(topLeft.x, bottomRight.x);
+  const y = Math.min(topLeft.y, bottomRight.y);
+
+  const width = Math.abs(bottomRight.x - topLeft.x);
+  const height = Math.abs(bottomRight.y - topLeft.y);
+
+  outputPage.drawRectangle({
+    x,
+    y,
+    width,
+    height,
+    color: rgb(1, 1, 1),
+  });
+}
     /*
      * SAVE NEW PDF
      */
@@ -2172,11 +2403,20 @@ onPointerUp={stopSignatureDrawing}
 if (tool.label === "Sign") {
   setShowSignDialog(true);
 }
+if (tool.label === "Whiteout") {
+  setWhiteoutMode((current) => !current);
+  setAddTextMode(false);
+  setSelectedTextId(null);
+  setSelectedImageId(null);
+  setMoveMode(false);
+}
 }}
+
                 disabled={!tool.enabled}
                 className={`flex items-center gap-2 rounded-md px-3 py-2 text-sm ${
                   tool.enabled
-  ? tool.label === "Text" && addTextMode
+  ? (tool.label === "Text" && addTextMode) ||
+(tool.label === "Whiteout" && whiteoutMode)
     ? "bg-blue-600 text-white"
     : "bg-blue-50 text-blue-700"
   : "text-slate-400"
@@ -2264,6 +2504,9 @@ if (tool.label === "Sign") {
     width: pageSize.width,
     height: pageSize.height,
   }}
+  onPointerDown={startWhiteout}
+onPointerMove={moveWhiteout}
+onPointerUp={endWhiteout}
   onMouseDown={(event) => {
     if (addTextMode) {
       const rect = event.currentTarget.getBoundingClientRect();
@@ -2283,6 +2526,43 @@ if (tool.label === "Sign") {
             ref={canvasRef}
             className="absolute left-0 top-0 bg-white"
           />
+{whiteoutBoxes
+  .filter((box) => box.pageNumber === pageNumber)
+  .map((box) => {
+    const whiteoutScale = scale / box.viewScale;
+
+    return (
+      <div
+  key={box.id}
+  onPointerDown={(event) => startWhiteoutMove(event, box)}
+  onPointerMove={moveWhiteoutBox}
+  onPointerUp={endWhiteoutMove}
+  className={`absolute z-10 cursor-move bg-white ${
+    selectedWhiteoutId === box.id
+      ? "outline-2 outline-blue-500"
+      : ""
+  }`}
+  style={{
+    left: box.left * whiteoutScale,
+    top: box.top * whiteoutScale,
+    width: box.width * whiteoutScale,
+    height: box.height * whiteoutScale,
+  }}
+/>
+    );
+  })}
+
+{draftWhiteout && draftWhiteout.pageNumber === pageNumber && (
+  <div
+    className="pointer-events-none absolute z-20 border-2 border-dashed border-blue-500 bg-white"
+    style={{
+      left: draftWhiteout.left,
+      top: draftWhiteout.top,
+      width: draftWhiteout.width,
+      height: draftWhiteout.height,
+    }}
+  />
+)}
 {imageBoxes
   .filter((imageBox) => imageBox.pageNumber === pageNumber)
   .map((imageBox) => {
@@ -2367,6 +2647,7 @@ onPointerUp={(event) => {
     );
   })}
   {selectedImageBox && (() => {
+    
   const imageScale = scale / selectedImageBox.viewScale;
 
   return (
@@ -2387,6 +2668,31 @@ onPointerMove={handleImageResizeMove}
 onPointerUp={handleImageResizeEnd}
  
     />
+  );
+})()}
+{selectedWhiteoutBox && (() => {
+  const whiteoutScale = scale / selectedWhiteoutBox.viewScale;
+
+  return (
+    <div
+      className="absolute z-50 flex items-center rounded-md border border-slate-300 bg-white p-1 shadow-xl"
+      style={{
+        left: selectedWhiteoutBox.left * whiteoutScale,
+        top: Math.max(
+          5,
+          selectedWhiteoutBox.top * whiteoutScale - 42
+        ),
+      }}
+      onPointerDown={(event) => event.stopPropagation()}
+    >
+      <button
+        onClick={deleteSelectedWhiteout}
+        className="rounded-md px-3 py-1.5 text-sm text-red-600 hover:bg-red-50"
+        title="Delete whiteout"
+      >
+        Delete
+      </button>
+    </div>
   );
 })()}
   {selectedImageBox && (() => {
