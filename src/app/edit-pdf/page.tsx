@@ -318,6 +318,109 @@ const stopSignatureDrawing = (
     event.currentTarget.releasePointerCapture(event.pointerId);
   }
 };
+const useTypedSignature = () => {
+  if (!typedSignature.trim()) return;
+
+  const signatureStyles = [
+    {
+      fontFamily: "cursive",
+      fontStyle: "normal",
+      fontWeight: 400,
+    },
+    {
+      fontFamily: "Georgia, serif",
+      fontStyle: "italic",
+      fontWeight: 400,
+    },
+    {
+      fontFamily: "cursive",
+      fontStyle: "italic",
+      fontWeight: 700,
+    },
+    {
+      fontFamily: "'Times New Roman', serif",
+      fontStyle: "italic",
+      fontWeight: 400,
+    },
+    {
+  fontFamily: '"Brush Script MT", cursive',
+  fontStyle: "italic",
+  fontWeight: 400,
+},
+{
+  fontFamily: '"Segoe Script", "Lucida Handwriting", cursive',
+  fontStyle: "normal",
+  fontWeight: 600,
+  
+},
+{
+  fontFamily: '"Brush Script MT", "Segoe Script", cursive',
+  fontStyle: "italic",
+  fontWeight: 700,
+},
+{
+  fontFamily: '"Lucida Handwriting", "Segoe Script", cursive',
+  fontStyle: "normal",
+  fontWeight: 400,
+},
+  ];
+
+  const selectedStyle =
+    signatureStyles[typedSignatureStyle] ||
+    signatureStyles[0];
+
+  const canvas = document.createElement("canvas");
+  canvas.width = 500;
+  canvas.height = 160;
+
+  const context = canvas.getContext("2d");
+  if (!context) return;
+
+  context.clearRect(0, 0, canvas.width, canvas.height);
+
+  context.fillStyle = "#111111";
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+
+  context.font = `${selectedStyle.fontStyle} ${selectedStyle.fontWeight} 72px ${selectedStyle.fontFamily}`;
+
+  context.fillText(
+    typedSignature.trim(),
+    canvas.width / 2,
+    canvas.height / 2
+  );
+
+  const src = canvas.toDataURL("image/png");
+
+  imageCounterRef.current += 1;
+
+  const width = 220;
+  const height = 70;
+
+  const newSignature: ImageBox = {
+    id: `signature-${imageCounterRef.current}`,
+    pageNumber,
+    viewScale: scale,
+    viewRotation: rotation,
+    src,
+    mimeType: "image/png",
+    left: Math.max(20, (pageSize.width - width) / 2),
+    top: Math.max(20, (pageSize.height - height) / 2),
+    width,
+    height,
+  };
+
+  setImageBoxes((current) => [
+    ...current,
+    newSignature,
+  ]);
+
+  setSelectedImageId(newSignature.id);
+  setSelectedTextId(null);
+
+  setShowSignDialog(false);
+  setSignDialogMode("type");
+};
   const createDefaultEdit = (box: TextBox): TextEdit => ({
     text: box.text,
     deleted: false,
@@ -1687,6 +1790,26 @@ for (const imageBox of imageBoxes) {
           fontStyle: "italic",
           fontWeight: 400,
         },
+        {
+  fontFamily: '"Brush Script MT", cursive',
+  fontStyle: "italic",
+  fontWeight: 400,
+},
+{
+  fontFamily: '"Segoe Script", "Lucida Handwriting", cursive',
+  fontStyle: "normal",
+  fontWeight: 600,
+},
+{
+  fontFamily: '"Brush Script MT", "Segoe Script", cursive',
+  fontStyle: "italic",
+  fontWeight: 700,
+},
+{
+  fontFamily: '"Lucida Handwriting", "Segoe Script", cursive',
+  fontStyle: "normal",
+  fontWeight: 400,
+},
       ].map((signatureStyle, index) => (
         <button
           key={index}
@@ -1710,6 +1833,19 @@ for (const imageBox of imageBoxes) {
         </button>
       ))}
     </div>
+    <div className="mt-5 flex justify-center">
+  <button
+    onClick={useTypedSignature}
+    disabled={!typedSignature.trim()}
+    className={`rounded-lg px-6 py-2.5 text-sm font-semibold text-white ${
+      typedSignature.trim()
+        ? "bg-blue-600 hover:bg-blue-700"
+        : "cursor-not-allowed bg-slate-300"
+    }`}
+  >
+    Use Signature
+  </button>
+</div>
   </div>
 )}
 
@@ -1941,7 +2077,7 @@ if (tool.label === "Sign") {
   setMoveMode(false);
 }}
 onPointerDown={(event) => {
-  if (!imageMoveMode) return;
+
 
   event.preventDefault();
   event.stopPropagation();
@@ -1961,10 +2097,9 @@ onPointerMove={(event) => {
   const drag = imageDragRef.current;
 
   if (
-    !imageMoveMode ||
-    !drag ||
-    drag.id !== imageBox.id
-  ) {
+  !drag ||
+  drag.id !== imageBox.id
+) {
     return;
   }
 
