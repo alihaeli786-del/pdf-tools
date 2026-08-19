@@ -134,6 +134,9 @@ export default function EditPdfPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const signatureCanvasRef = useRef<HTMLCanvasElement>(null);
+  const signatureImageInputRef = useRef<HTMLInputElement>(null);
+  const signatureCameraVideoRef = useRef<HTMLVideoElement>(null);
+const signatureCameraStreamRef = useRef<MediaStream | null>(null);
 const signatureDrawingRef = useRef(false);
   const duplicateCounterRef = useRef(0);
   const newTextCounterRef = useRef(0);
@@ -417,6 +420,66 @@ const useTypedSignature = () => {
 
   setSelectedImageId(newSignature.id);
   setSelectedTextId(null);
+
+  setShowSignDialog(false);
+  setSignDialogMode("type");
+};
+const useDrawnSignature = () => {
+  const canvas = signatureCanvasRef.current;
+  if (!canvas) return;
+
+  const context = canvas.getContext("2d");
+  if (!context) return;
+
+  const imageData = context.getImageData(
+    0,
+    0,
+    canvas.width,
+    canvas.height
+  );
+
+  const hasSignature = Array.from(imageData.data).some(
+    (_, index) =>
+      index % 4 === 3 &&
+      imageData.data[index] > 0
+  );
+
+  if (!hasSignature) return;
+
+  const src = canvas.toDataURL("image/png");
+
+  imageCounterRef.current += 1;
+
+  const width = 220;
+  const height = width * (canvas.height / canvas.width);
+
+  const newSignature: ImageBox = {
+    id: `signature-${imageCounterRef.current}`,
+    pageNumber,
+    viewScale: scale,
+    viewRotation: rotation,
+    src,
+    mimeType: "image/png",
+    left: Math.max(20, (pageSize.width - width) / 2),
+    top: Math.max(20, (pageSize.height - height) / 2),
+    width,
+    height,
+  };
+
+  setImageBoxes((current) => [
+    ...current,
+    newSignature,
+  ]);
+
+  setSelectedImageId(newSignature.id);
+  setSelectedTextId(null);
+
+  context.clearRect(
+    0,
+    0,
+    canvas.width,
+    canvas.height
+  );
 
   setShowSignDialog(false);
   setSignDialogMode("type");
@@ -772,12 +835,110 @@ const handleImageFile = (selectedFile?: File) => {
       };
 
       setImageBoxes((current) => [...current, newImage]);
+      setSelectedImageId(newImage.id);
+setSelectedTextId(null);
     };
 
     image.src = src;
   };
 
   reader.readAsDataURL(selectedFile);
+};
+const handleSignatureImageFile = (selectedFile?: File) => {
+  if (!selectedFile) return;
+
+  handleImageFile(selectedFile);
+
+  setShowSignDialog(false);
+  setSignDialogMode("type");
+};
+const startSignatureCamera = async () => {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: true,
+      audio: false,
+    });
+
+    signatureCameraStreamRef.current = stream;
+
+    const video = signatureCameraVideoRef.current;
+
+    if (video) {
+      video.srcObject = stream;
+      await video.play();
+    }
+  } catch {
+    alert("Unable to access camera. Please allow camera permission.");
+  }
+};
+
+const stopSignatureCamera = () => {
+  const stream = signatureCameraStreamRef.current;
+
+  if (stream) {
+    stream.getTracks().forEach((track) => track.stop());
+  }
+
+  signatureCameraStreamRef.current = null;
+
+  const video = signatureCameraVideoRef.current;
+
+  if (video) {
+    video.srcObject = null;
+  }
+};
+const captureSignatureCamera = () => {
+  const video = signatureCameraVideoRef.current;
+  if (!video || !video.videoWidth || !video.videoHeight) return;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+
+  const context = canvas.getContext("2d");
+  if (!context) return;
+
+  context.drawImage(
+    video,
+    0,
+    0,
+    canvas.width,
+    canvas.height
+  );
+
+  const src = canvas.toDataURL("image/png");
+
+  imageCounterRef.current += 1;
+
+  const width = 220;
+  const height =
+    width * (canvas.height / canvas.width);
+
+  const newImage: ImageBox = {
+    id: `signature-camera-${imageCounterRef.current}`,
+    pageNumber,
+    viewScale: scale,
+    viewRotation: rotation,
+    src,
+    mimeType: "image/png",
+    left: Math.max(20, (pageSize.width - width) / 2),
+    top: Math.max(20, (pageSize.height - height) / 2),
+    width,
+    height,
+  };
+
+  setImageBoxes((current) => [
+    ...current,
+    newImage,
+  ]);
+
+  setSelectedImageId(newImage.id);
+  setSelectedTextId(null);
+
+  stopSignatureCamera();
+
+  setShowSignDialog(false);
+  setSignDialogMode("type");
 };
   const handleFile = async (selectedFile?: File) => {
     if (!selectedFile) return;
@@ -1870,6 +2031,7 @@ onPointerUp={stopSignatureDrawing}
       </button>
 
       <button
+      onClick={useDrawnSignature}
         className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white"
       >
         Use Signature
@@ -1877,7 +2039,69 @@ onPointerUp={stopSignatureDrawing}
     </div>
   </div>
 )}
+{signDialogMode === "upload" && (
+  <div className="mt-5">
+    <button
+      onClick={() => signatureImageInputRef.current?.click()}
+      className="w-full rounded-lg border-2 border-dashed border-slate-300 px-5 py-8 text-center hover:border-blue-400 hover:bg-blue-50"
+    >
+      <ImageIcon className="mx-auto mb-2 text-blue-600" size={28} />
 
+      <div className="font-medium text-slate-800">
+        Choose Signature Image
+      </div>
+
+      <div className="mt-1 text-sm text-slate-500">
+        PNG or JPG
+      </div>
+    </button>
+
+    <input
+      ref={signatureImageInputRef}
+      type="file"
+      accept="image/png,image/jpeg"
+      className="hidden"
+      onChange={(event) => {
+        handleSignatureImageFile(event.target.files?.[0]);
+        event.target.value = "";
+      }}
+    />
+  </div>
+)}
+{signDialogMode === "camera" && (
+  <div className="mt-5">
+    <video
+      ref={signatureCameraVideoRef}
+      autoPlay
+      playsInline
+      muted
+      className="w-full rounded-lg border border-slate-300 bg-black"
+    />
+
+    <div className="mt-3 flex justify-center gap-3">
+      <button
+        onClick={startSignatureCamera}
+        className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+      >
+        Start Camera
+      </button>
+
+      <button
+        onClick={stopSignatureCamera}
+        className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
+      >
+        Stop Camera
+      </button>
+      <button
+  onClick={captureSignatureCamera}
+  className="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700"
+>
+  Capture Photo
+</button>
+    </div>
+    
+  </div>
+)}
       <div className="mt-5 flex justify-end">
         <button
           onClick={() => {
