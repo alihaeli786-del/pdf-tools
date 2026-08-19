@@ -124,10 +124,17 @@ export default function EditPdfPage() {
   const [editBoxes, setEditBoxes] = useState<Record<string, TextBox>>({});
   const [moveMode, setMoveMode] = useState(false);
   const [imageMoveMode, setImageMoveMode] = useState(false);
+  const [showSignDialog, setShowSignDialog] = useState(false);
+  const [signDialogMode, setSignDialogMode] =
+  useState<"type" | "draw" | "upload" | "camera">("type");
+  const [typedSignature, setTypedSignature] = useState("");
+  const [typedSignatureStyle, setTypedSignatureStyle] = useState(0);
   const [addTextMode, setAddTextMode] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
+  const signatureCanvasRef = useRef<HTMLCanvasElement>(null);
+const signatureDrawingRef = useRef(false);
   const duplicateCounterRef = useRef(0);
   const newTextCounterRef = useRef(0);
   const imageCounterRef = useRef(0);
@@ -157,7 +164,7 @@ const imageResizeRef = useRef<{
     { label: "Links", icon: LinkIcon, enabled: false },
     { label: "Forms", icon: FileInput, enabled: false },
     { label: "Images", icon: ImageIcon, enabled: true },
-    { label: "Sign", icon: PenLine, enabled: false },
+    { label: "Sign", icon: PenLine, enabled: true },
     { label: "Whiteout", icon: Eraser, enabled: false },
     { label: "Annotate", icon: Highlighter, enabled: false },
     { label: "Shapes", icon: Shapes, enabled: false },
@@ -250,6 +257,65 @@ const handleImageResizeEnd = (
     event.currentTarget.releasePointerCapture(
       event.pointerId
     );
+  }
+};
+const startSignatureDrawing = (
+  event: React.PointerEvent<HTMLCanvasElement>
+) => {
+  const canvas = signatureCanvasRef.current;
+  if (!canvas) return;
+
+  const context = canvas.getContext("2d");
+  if (!context) return;
+
+  event.currentTarget.setPointerCapture(event.pointerId);
+
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+
+  const x = (event.clientX - rect.left) * scaleX;
+  const y = (event.clientY - rect.top) * scaleY;
+
+  context.beginPath();
+  context.moveTo(x, y);
+  context.lineWidth = 2;
+  context.lineCap = "round";
+  context.lineJoin = "round";
+  context.strokeStyle = "#111111";
+
+  signatureDrawingRef.current = true;
+};
+
+const drawSignature = (
+  event: React.PointerEvent<HTMLCanvasElement>
+) => {
+  if (!signatureDrawingRef.current) return;
+
+  const canvas = signatureCanvasRef.current;
+  if (!canvas) return;
+
+  const context = canvas.getContext("2d");
+  if (!context) return;
+
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+
+  const x = (event.clientX - rect.left) * scaleX;
+  const y = (event.clientY - rect.top) * scaleY;
+
+  context.lineTo(x, y);
+  context.stroke();
+};
+
+const stopSignatureDrawing = (
+  event: React.PointerEvent<HTMLCanvasElement>
+) => {
+  signatureDrawingRef.current = false;
+
+  if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+    event.currentTarget.releasePointerCapture(event.pointerId);
   }
 };
   const createDefaultEdit = (box: TextBox): TextEdit => ({
@@ -1529,6 +1595,167 @@ for (const imageBox of imageBoxes) {
   event.target.value = "";
 }}
 />
+{showSignDialog && (
+  <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40">
+    <div
+      className="w-[420px] max-w-[90vw] rounded-xl bg-white p-6 shadow-2xl"
+      onMouseDown={(event) => event.stopPropagation()}
+    >
+      <h2 className="text-xl font-semibold text-slate-900">
+        Add Signature
+      </h2>
+
+      <p className="mt-1 text-sm text-slate-500">
+        Draw your signature or upload an image.
+      </p>
+<div className="mt-5 flex border-b border-slate-200">
+  <button
+    onClick={() => setSignDialogMode("type")}
+    className={`px-4 py-3 text-sm font-medium ${
+      signDialogMode === "type"
+        ? "border-b-2 border-blue-600 text-blue-600"
+        : "text-slate-600 hover:text-blue-600"
+    }`}
+  >
+    Type
+  </button>
+
+  <button
+    onClick={() => setSignDialogMode("draw")}
+    className={`px-4 py-3 text-sm font-medium ${
+      signDialogMode === "draw"
+        ? "border-b-2 border-blue-600 text-blue-600"
+        : "text-slate-600 hover:text-blue-600"
+    }`}
+  >
+    Draw
+  </button>
+
+  <button
+    onClick={() => setSignDialogMode("upload")}
+    className={`px-4 py-3 text-sm font-medium ${
+      signDialogMode === "upload"
+        ? "border-b-2 border-blue-600 text-blue-600"
+        : "text-slate-600 hover:text-blue-600"
+    }`}
+  >
+    Upload Image
+  </button>
+
+  <button
+    onClick={() => setSignDialogMode("camera")}
+    className={`px-4 py-3 text-sm font-medium ${
+      signDialogMode === "camera"
+        ? "border-b-2 border-blue-600 text-blue-600"
+        : "text-slate-600 hover:text-blue-600"
+    }`}
+  >
+    Camera
+  </button>
+</div>
+      {signDialogMode === "type" && (
+  <div className="mt-5">
+    <input
+      type="text"
+      value={typedSignature}
+      onChange={(event) =>
+        setTypedSignature(event.target.value)
+      }
+      placeholder="Type your name"
+      className="w-full rounded-lg border border-slate-300 px-4 py-3 text-base outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+    />
+
+    <div className="mt-5 grid grid-cols-2 gap-3">
+      {[
+        {
+          fontFamily: "cursive",
+          fontStyle: "normal",
+          fontWeight: 400,
+        },
+        {
+          fontFamily: "Georgia, serif",
+          fontStyle: "italic",
+          fontWeight: 400,
+        },
+        {
+          fontFamily: "cursive",
+          fontStyle: "italic",
+          fontWeight: 700,
+        },
+        {
+          fontFamily: "'Times New Roman', serif",
+          fontStyle: "italic",
+          fontWeight: 400,
+        },
+      ].map((signatureStyle, index) => (
+        <button
+          key={index}
+          onClick={() => setTypedSignatureStyle(index)}
+          className={`flex min-h-20 items-center justify-center rounded-lg border px-3 py-3 ${
+            typedSignatureStyle === index
+              ? "border-blue-500 bg-blue-50"
+              : "border-slate-200 hover:border-blue-300"
+          }`}
+        >
+          <span
+            className="text-2xl text-slate-800"
+            style={{
+              fontFamily: signatureStyle.fontFamily,
+              fontStyle: signatureStyle.fontStyle,
+              fontWeight: signatureStyle.fontWeight,
+            }}
+          >
+            {typedSignature || "Your Name"}
+          </span>
+        </button>
+      ))}
+    </div>
+  </div>
+)}
+
+{signDialogMode === "draw" && (
+  <div className="mt-5">
+    <canvas
+      ref={signatureCanvasRef}
+      width={360}
+      height={160}
+      onPointerDown={startSignatureDrawing}
+onPointerMove={drawSignature}
+onPointerUp={stopSignatureDrawing}
+      className="w-full touch-none rounded-lg border border-slate-300 bg-white"
+    />
+
+    <div className="mt-3 flex justify-between">
+      <button
+        onClick={() => setSignDialogMode("type")}
+        className="rounded-lg px-3 py-2 text-sm text-slate-600 hover:bg-slate-100"
+      >
+        Back
+      </button>
+
+      <button
+        className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white"
+      >
+        Use Signature
+      </button>
+    </div>
+  </div>
+)}
+
+      <div className="mt-5 flex justify-end">
+        <button
+          onClick={() => {
+  setShowSignDialog(false);
+  setSignDialogMode("type");
+}}
+          className="rounded-lg px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  </div>
+)}
       <header className="border-b border-slate-200 bg-white">
         <div className="flex min-h-16 items-center justify-between gap-4 px-4">
           <div className="flex items-center gap-3">
@@ -1581,6 +1808,9 @@ for (const imageBox of imageBoxes) {
   }
   if (tool.label === "Images") {
   imageInputRef.current?.click();
+}
+if (tool.label === "Sign") {
+  setShowSignDialog(true);
 }
 }}
                 disabled={!tool.enabled}
