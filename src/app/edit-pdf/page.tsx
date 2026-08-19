@@ -46,7 +46,18 @@ type TextBox = {
   backgroundColor: string;
   isNew?: boolean;
 };
-
+type ImageBox = {
+  id: string;
+  pageNumber: number;
+  viewScale: number;
+  viewRotation: number;
+  src: string;
+  mimeType: "image/png" | "image/jpeg";
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+};
 type TextEdit = {
   text: string;
   deleted: boolean;
@@ -105,16 +116,21 @@ export default function EditPdfPage() {
   });
 
   const [textBoxes, setTextBoxes] = useState<TextBox[]>([]);
+  const [imageBoxes, setImageBoxes] = useState<ImageBox[]>([]);
+  const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
   const [selectedTextId, setSelectedTextId] = useState<string | null>(null);
 
   const [textEdits, setTextEdits] = useState<Record<string, TextEdit>>({});
   const [editBoxes, setEditBoxes] = useState<Record<string, TextBox>>({});
   const [moveMode, setMoveMode] = useState(false);
+  const [imageMoveMode, setImageMoveMode] = useState(false);
   const [addTextMode, setAddTextMode] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
   const duplicateCounterRef = useRef(0);
   const newTextCounterRef = useRef(0);
+  const imageCounterRef = useRef(0);
   const dragRef = useRef<{
     id: string;
     startX: number;
@@ -122,12 +138,25 @@ export default function EditPdfPage() {
     initialX: number;
     initialY: number;
   } | null>(null);
-
+const imageDragRef = useRef<{
+  id: string;
+  startX: number;
+  startY: number;
+  initialLeft: number;
+  initialTop: number;
+} | null>(null);
+const imageResizeRef = useRef<{
+  id: string;
+  startX: number;
+  startY: number;
+  initialWidth: number;
+  initialHeight: number;
+} | null>(null);
   const tools = [
     { label: "Text", icon: Type, enabled: true },
     { label: "Links", icon: LinkIcon, enabled: false },
     { label: "Forms", icon: FileInput, enabled: false },
-    { label: "Images", icon: ImageIcon, enabled: false },
+    { label: "Images", icon: ImageIcon, enabled: true },
     { label: "Sign", icon: PenLine, enabled: false },
     { label: "Whiteout", icon: Eraser, enabled: false },
     { label: "Annotate", icon: Highlighter, enabled: false },
@@ -136,7 +165,93 @@ export default function EditPdfPage() {
 
   const selectedBox =
     textBoxes.find((box) => box.id === selectedTextId) || null;
+const selectedImageBox =
+  imageBoxes.find((imageBox) => imageBox.id === selectedImageId) || null;
+  const deleteSelectedImage = () => {
+  if (!selectedImageId) return;
 
+  setImageBoxes((current) =>
+    current.filter((imageBox) => imageBox.id !== selectedImageId)
+  );
+
+  setSelectedImageId(null);
+};
+const handleImageResizeStart = (
+  event: React.PointerEvent<HTMLDivElement>
+) => {
+  if (!selectedImageBox) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+
+  event.currentTarget.setPointerCapture(event.pointerId);
+
+  imageResizeRef.current = {
+    id: selectedImageBox.id,
+    startX: event.clientX,
+    startY: event.clientY,
+    initialWidth: selectedImageBox.width,
+    initialHeight: selectedImageBox.height,
+  };
+};
+
+const handleImageResizeMove = (
+  event: React.PointerEvent<HTMLDivElement>
+) => {
+  if (!selectedImageBox) return;
+
+  const resize = imageResizeRef.current;
+
+  if (!resize || resize.id !== selectedImageBox.id) return;
+
+  const imageScale = scale / selectedImageBox.viewScale;
+
+  const deltaX =
+    (event.clientX - resize.startX) / imageScale;
+
+  const aspectRatio =
+    resize.initialHeight / resize.initialWidth;
+
+  const newWidth = Math.max(
+    40,
+    resize.initialWidth + deltaX
+  );
+
+  const newHeight = newWidth * aspectRatio;
+
+  setImageBoxes((current) =>
+    current.map((currentImage) =>
+      currentImage.id === selectedImageBox.id
+        ? {
+            ...currentImage,
+            width: newWidth,
+            height: newHeight,
+          }
+        : currentImage
+    )
+  );
+};
+
+const handleImageResizeEnd = (
+  event: React.PointerEvent<HTMLDivElement>
+) => {
+  if (
+    !selectedImageBox ||
+    imageResizeRef.current?.id !== selectedImageBox.id
+  ) {
+    return;
+  }
+
+  imageResizeRef.current = null;
+
+  if (
+    event.currentTarget.hasPointerCapture(event.pointerId)
+  ) {
+    event.currentTarget.releasePointerCapture(
+      event.pointerId
+    );
+  }
+};
   const createDefaultEdit = (box: TextBox): TextEdit => ({
     text: box.text,
     deleted: false,
@@ -447,7 +562,54 @@ const groupTextIntoLines = (boxes: TextBox[]): TextBox[] => {
 
     return `rgb(${average[0]}, ${average[1]}, ${average[2]})`;
   };
+const handleImageFile = (selectedFile?: File) => {
+  if (!selectedFile) return;
 
+  if (
+    selectedFile.type !== "image/png" &&
+    selectedFile.type !== "image/jpeg"
+  ) {
+    alert("Please select a PNG or JPG image.");
+    return;
+  }
+
+  const reader = new FileReader();
+
+  reader.onload = () => {
+    const src = reader.result as string;
+    const image = new Image();
+
+    image.onload = () => {
+      imageCounterRef.current += 1;
+
+      const maxWidth = 220;
+      const width = Math.min(image.naturalWidth, maxWidth);
+      const height =
+        (image.naturalHeight / image.naturalWidth) * width;
+
+      const newImage: ImageBox = {
+        id: `image-${imageCounterRef.current}`,
+        pageNumber,
+        viewScale: scale,
+        viewRotation: rotation,
+        src,
+        mimeType: selectedFile.type as
+          | "image/png"
+          | "image/jpeg",
+        left: Math.max(20, (pageSize.width - width) / 2),
+        top: Math.max(20, (pageSize.height - height) / 2),
+        width,
+        height,
+      };
+
+      setImageBoxes((current) => [...current, newImage]);
+    };
+
+    image.src = src;
+  };
+
+  reader.readAsDataURL(selectedFile);
+};
   const handleFile = async (selectedFile?: File) => {
     if (!selectedFile) return;
 
@@ -1313,6 +1475,16 @@ if (!point1 || !point2) continue;
 
   return (
     <main className="flex min-h-screen flex-col bg-[#e9e9e9]">
+    <input
+  ref={imageInputRef}
+  type="file"
+  accept="image/png,image/jpeg"
+  className="hidden"
+  onChange={(event) => {
+  handleImageFile(event.target.files?.[0]);
+  event.target.value = "";
+}}
+/>
       <header className="border-b border-slate-200 bg-white">
         <div className="flex min-h-16 items-center justify-between gap-4 px-4">
           <div className="flex items-center gap-3">
@@ -1363,6 +1535,9 @@ if (!point1 || !point2) continue;
     setSelectedTextId(null);
     setMoveMode(false);
   }
+  if (tool.label === "Images") {
+  imageInputRef.current?.click();
+}
 }}
                 disabled={!tool.enabled}
                 className={`flex items-center gap-2 rounded-md px-3 py-2 text-sm ${
@@ -1474,7 +1649,146 @@ if (!point1 || !point2) continue;
             ref={canvasRef}
             className="absolute left-0 top-0 bg-white"
           />
+{imageBoxes
+  .filter((imageBox) => imageBox.pageNumber === pageNumber)
+  .map((imageBox) => {
+    const imageScale = scale / imageBox.viewScale;
 
+    return (
+      <img
+        key={imageBox.id}
+        src={imageBox.src}
+        alt=""
+        draggable={false}
+        onMouseDown={(event) => {
+  event.stopPropagation();
+  setSelectedImageId(imageBox.id);
+  setSelectedTextId(null);
+  setMoveMode(false);
+}}
+onPointerDown={(event) => {
+  if (!imageMoveMode) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+
+  event.currentTarget.setPointerCapture(event.pointerId);
+
+  imageDragRef.current = {
+    id: imageBox.id,
+    startX: event.clientX,
+    startY: event.clientY,
+    initialLeft: imageBox.left,
+    initialTop: imageBox.top,
+  };
+}}
+
+onPointerMove={(event) => {
+  const drag = imageDragRef.current;
+
+  if (
+    !imageMoveMode ||
+    !drag ||
+    drag.id !== imageBox.id
+  ) {
+    return;
+  }
+
+  const deltaX =
+    (event.clientX - drag.startX) / imageScale;
+
+  const deltaY =
+    (event.clientY - drag.startY) / imageScale;
+
+  setImageBoxes((current) =>
+    current.map((currentImage) =>
+      currentImage.id === imageBox.id
+        ? {
+            ...currentImage,
+            left: drag.initialLeft + deltaX,
+            top: drag.initialTop + deltaY,
+          }
+        : currentImage
+    )
+  );
+}}
+
+onPointerUp={(event) => {
+  if (imageDragRef.current?.id === imageBox.id) {
+    imageDragRef.current = null;
+    event.currentTarget.releasePointerCapture(event.pointerId);
+  }
+}}
+        className={`absolute z-20 select-none ${
+  selectedImageId === imageBox.id
+    ? "outline-2 outline-blue-500"
+    : ""
+}`}
+        style={{
+          left: imageBox.left * imageScale,
+          top: imageBox.top * imageScale,
+          width: imageBox.width * imageScale,
+          height: imageBox.height * imageScale,
+        }}
+      />
+    );
+  })}
+  {selectedImageBox && (() => {
+  const imageScale = scale / selectedImageBox.viewScale;
+
+  return (
+    <div
+      className="absolute z-40 h-4 w-4 cursor-nwse-resize rounded-sm border-2 border-white bg-blue-600 shadow"
+      style={{
+        left:
+          (selectedImageBox.left + selectedImageBox.width) *
+            imageScale -
+          8,
+        top:
+          (selectedImageBox.top + selectedImageBox.height) *
+            imageScale -
+          8,
+      }}
+      onPointerDown={handleImageResizeStart}
+onPointerMove={handleImageResizeMove}
+onPointerUp={handleImageResizeEnd}
+ 
+    />
+  );
+})()}
+  {selectedImageBox && (() => {
+  const imageScale = scale / selectedImageBox.viewScale;
+
+  return (
+    <div
+      className="absolute z-50 flex items-center gap-1 rounded-md border border-slate-300 bg-white p-1 shadow-xl"
+      style={{
+        left: selectedImageBox.left * imageScale,
+        top: Math.max(5, selectedImageBox.top * imageScale - 42),
+      }}
+      onMouseDown={(event) => event.stopPropagation()}
+    >
+     <button
+  onClick={() => setImageMoveMode((current) => !current)}
+  className={`rounded p-2 ${
+    imageMoveMode
+      ? "bg-blue-100 text-blue-700"
+      : "text-slate-600 hover:bg-blue-50 hover:text-blue-700"
+  }`}
+  title="Move image"
+>
+  <Move size={16} />
+</button> 
+      <button
+        onClick={deleteSelectedImage}
+        className="rounded px-3 py-1.5 text-sm text-red-600 hover:bg-red-50"
+        title="Delete image"
+      >
+        Delete
+      </button>
+    </div>
+  );
+})()}
           {selectedBox && (() => {
             const edit = getTextEdit(selectedBox);
 
