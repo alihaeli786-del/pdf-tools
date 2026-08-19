@@ -68,6 +68,7 @@ type WhiteoutBox = {
   width: number;
   height: number;
 };
+type AnnotateBox = WhiteoutBox;
 type TextEdit = {
   text: string;
   deleted: boolean;
@@ -129,6 +130,9 @@ export default function EditPdfPage() {
   const [imageBoxes, setImageBoxes] = useState<ImageBox[]>([]);
   const [whiteoutBoxes, setWhiteoutBoxes] = useState<WhiteoutBox[]>([]);
   const [draftWhiteout, setDraftWhiteout] = useState<WhiteoutBox | null>(null);
+  const [annotateBoxes, setAnnotateBoxes] = useState<AnnotateBox[]>([]);
+const [draftAnnotate, setDraftAnnotate] = useState<AnnotateBox | null>(null);
+const [selectedAnnotateId, setSelectedAnnotateId] = useState<string | null>(null);
   const [selectedWhiteoutId, setSelectedWhiteoutId] = useState<string | null>(null);
   const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
   const [selectedTextId, setSelectedTextId] = useState<string | null>(null);
@@ -144,6 +148,7 @@ export default function EditPdfPage() {
   const [typedSignatureStyle, setTypedSignatureStyle] = useState(0);
   const [addTextMode, setAddTextMode] = useState(false);
   const [whiteoutMode, setWhiteoutMode] = useState(false);
+  const [annotateMode, setAnnotateMode] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -156,11 +161,23 @@ const signatureDrawingRef = useRef(false);
   const newTextCounterRef = useRef(0);
   const imageCounterRef = useRef(0);
   const whiteoutCounterRef = useRef(0);
+  const annotateCounterRef = useRef(0);
   const whiteoutDragRef = useRef<{
   startX: number;
   startY: number;
 } | null>(null);
+const annotateDragRef = useRef<{
+  startX: number;
+  startY: number;
+} | null>(null);
 const whiteoutMoveRef = useRef<{
+  id: string;
+  startX: number;
+  startY: number;
+  initialLeft: number;
+  initialTop: number;
+} | null>(null);
+const annotateMoveRef = useRef<{
   id: string;
   startX: number;
   startY: number;
@@ -195,7 +212,7 @@ const imageResizeRef = useRef<{
     { label: "Images", icon: ImageIcon, enabled: true },
     { label: "Sign", icon: PenLine, enabled: true },
     { label: "Whiteout", icon: Eraser, enabled: true },
-    { label: "Annotate", icon: Highlighter, enabled: false },
+    { label: "Annotate", icon: Highlighter, enabled: true },
     { label: "Shapes", icon: Shapes, enabled: false },
   ];
 
@@ -205,6 +222,8 @@ const selectedImageBox =
   imageBoxes.find((imageBox) => imageBox.id === selectedImageId) || null;
   const selectedWhiteoutBox =
   whiteoutBoxes.find((box) => box.id === selectedWhiteoutId) || null;
+  const selectedAnnotateBox =
+  annotateBoxes.find((box) => box.id === selectedAnnotateId) || null;
   const deleteSelectedImage = () => {
   if (!selectedImageId) return;
 
@@ -222,6 +241,15 @@ const deleteSelectedWhiteout = () => {
   );
 
   setSelectedWhiteoutId(null);
+};
+const deleteSelectedAnnotate = () => {
+  if (!selectedAnnotateId) return;
+
+  setAnnotateBoxes((current) =>
+    current.filter((box) => box.id !== selectedAnnotateId)
+  );
+
+  setSelectedAnnotateId(null);
 };
 const handleImageResizeStart = (
   event: React.PointerEvent<HTMLDivElement>
@@ -828,6 +856,166 @@ const endWhiteoutMove = (
   if (!move) return;
 
   whiteoutMoveRef.current = null;
+
+  if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+    event.currentTarget.releasePointerCapture(event.pointerId);
+  }
+};
+const startAnnotate = (
+  event: React.PointerEvent<HTMLDivElement>
+) => {
+  if (!annotateMode) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+
+  const rect = event.currentTarget.getBoundingClientRect();
+
+  const x = event.clientX - rect.left;
+  const y = event.clientY - rect.top;
+
+  annotateCounterRef.current += 1;
+
+  const newAnnotate: AnnotateBox = {
+    id: `annotate-${pageNumber}-${annotateCounterRef.current}`,
+    pageNumber,
+    viewScale: scale,
+    viewRotation: rotation,
+    left: x,
+    top: y,
+    width: 0,
+    height: 0,
+  };
+
+  annotateDragRef.current = {
+    startX: x,
+    startY: y,
+  };
+
+  setDraftAnnotate(newAnnotate);
+
+  event.currentTarget.setPointerCapture(event.pointerId);
+};
+
+const moveAnnotate = (
+  event: React.PointerEvent<HTMLDivElement>
+) => {
+  if (!annotateMode) return;
+
+  const drag = annotateDragRef.current;
+  if (!drag) return;
+
+  const rect = event.currentTarget.getBoundingClientRect();
+
+  const currentX = event.clientX - rect.left;
+  const currentY = event.clientY - rect.top;
+
+  const left = Math.min(drag.startX, currentX);
+  const top = Math.min(drag.startY, currentY);
+  const width = Math.abs(currentX - drag.startX);
+  const height = Math.abs(currentY - drag.startY);
+
+  setDraftAnnotate((current) =>
+    current
+      ? {
+          ...current,
+          left,
+          top,
+          width,
+          height,
+        }
+      : null
+  );
+};
+
+const endAnnotate = (
+  event: React.PointerEvent<HTMLDivElement>
+) => {
+  if (!annotateMode) return;
+
+  const currentAnnotate = draftAnnotate;
+
+  annotateDragRef.current = null;
+
+  if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+    event.currentTarget.releasePointerCapture(event.pointerId);
+  }
+
+  if (
+    currentAnnotate &&
+    currentAnnotate.width > 2 &&
+    currentAnnotate.height > 2
+  ) {
+    setAnnotateBoxes((current) => [
+      ...current,
+      currentAnnotate,
+    ]);
+  }
+
+  setDraftAnnotate(null);
+};
+const startAnnotateMove = (
+  event: React.PointerEvent<HTMLDivElement>,
+  box: AnnotateBox
+) => {
+  event.preventDefault();
+  event.stopPropagation();
+
+  setSelectedAnnotateId(box.id);
+  setSelectedWhiteoutId(null);
+  setSelectedImageId(null);
+  setSelectedTextId(null);
+
+  annotateMoveRef.current = {
+    id: box.id,
+    startX: event.clientX,
+    startY: event.clientY,
+    initialLeft: box.left,
+    initialTop: box.top,
+  };
+
+  event.currentTarget.setPointerCapture(event.pointerId);
+};
+
+const moveAnnotateBox = (
+  event: React.PointerEvent<HTMLDivElement>
+) => {
+  const move = annotateMoveRef.current;
+  if (!move) return;
+
+  const box = annotateBoxes.find(
+    (currentBox) => currentBox.id === move.id
+  );
+
+  if (!box) return;
+
+  const annotateScale = scale / box.viewScale;
+
+  const deltaX =
+    (event.clientX - move.startX) / annotateScale;
+
+  const deltaY =
+    (event.clientY - move.startY) / annotateScale;
+
+  setAnnotateBoxes((current) =>
+    current.map((currentBox) =>
+      currentBox.id === move.id
+        ? {
+            ...currentBox,
+            left: move.initialLeft + deltaX,
+            top: move.initialTop + deltaY,
+          }
+        : currentBox
+    )
+  );
+};
+
+const endAnnotateMove = (
+  event: React.PointerEvent<HTMLDivElement>
+) => {
+  if (!annotateMoveRef.current) return;
+
+  annotateMoveRef.current = null;
 
   if (event.currentTarget.hasPointerCapture(event.pointerId)) {
     event.currentTarget.releasePointerCapture(event.pointerId);
@@ -1925,6 +2113,43 @@ for (const whiteoutBox of whiteoutBoxes) {
     color: rgb(1, 1, 1),
   });
 }
+for (const annotateBox of annotateBoxes) {
+  const outputPage = outputPdf.getPage(
+    annotateBox.pageNumber - 1
+  );
+
+  const topLeft = await viewportPointToPdfPoint(
+    annotateBox.left,
+    annotateBox.top,
+    annotateBox.pageNumber,
+    annotateBox.viewScale,
+    annotateBox.viewRotation
+  );
+
+  const bottomRight = await viewportPointToPdfPoint(
+    annotateBox.left + annotateBox.width,
+    annotateBox.top + annotateBox.height,
+    annotateBox.pageNumber,
+    annotateBox.viewScale,
+    annotateBox.viewRotation
+  );
+
+  if (!topLeft || !bottomRight) continue;
+
+  const x = Math.min(topLeft.x, bottomRight.x);
+  const y = Math.min(topLeft.y, bottomRight.y);
+  const width = Math.abs(bottomRight.x - topLeft.x);
+  const height = Math.abs(bottomRight.y - topLeft.y);
+
+  outputPage.drawRectangle({
+    x,
+    y,
+    width,
+    height,
+    color: rgb(1, 0.8, 0),
+    opacity: 0.35,
+  });
+}
     /*
      * SAVE NEW PDF
      */
@@ -2394,6 +2619,8 @@ onPointerUp={stopSignatureDrawing}
                 onClick={() => {
   if (tool.label === "Text") {
     setAddTextMode((current) => !current);
+    setWhiteoutMode(false);
+setAnnotateMode(false);
     setSelectedTextId(null);
     setMoveMode(false);
   }
@@ -2405,9 +2632,19 @@ if (tool.label === "Sign") {
 }
 if (tool.label === "Whiteout") {
   setWhiteoutMode((current) => !current);
+  setAnnotateMode(false);
   setAddTextMode(false);
   setSelectedTextId(null);
   setSelectedImageId(null);
+  setMoveMode(false);
+}
+if (tool.label === "Annotate") {
+  setAnnotateMode((current) => !current);
+  setWhiteoutMode(false);
+  setAddTextMode(false);
+  setSelectedTextId(null);
+  setSelectedImageId(null);
+  setSelectedWhiteoutId(null);
   setMoveMode(false);
 }
 }}
@@ -2416,7 +2653,8 @@ if (tool.label === "Whiteout") {
                 className={`flex items-center gap-2 rounded-md px-3 py-2 text-sm ${
                   tool.enabled
   ? (tool.label === "Text" && addTextMode) ||
-(tool.label === "Whiteout" && whiteoutMode)
+(tool.label === "Whiteout" && whiteoutMode) ||
+(tool.label === "Annotate" && annotateMode)
     ? "bg-blue-600 text-white"
     : "bg-blue-50 text-blue-700"
   : "text-slate-400"
@@ -2504,9 +2742,18 @@ if (tool.label === "Whiteout") {
     width: pageSize.width,
     height: pageSize.height,
   }}
-  onPointerDown={startWhiteout}
-onPointerMove={moveWhiteout}
-onPointerUp={endWhiteout}
+  onPointerDown={(event) => {
+  startWhiteout(event);
+  startAnnotate(event);
+}}
+onPointerMove={(event) => {
+  moveWhiteout(event);
+  moveAnnotate(event);
+}}
+onPointerUp={(event) => {
+  endWhiteout(event);
+  endAnnotate(event);
+}}
   onMouseDown={(event) => {
     if (addTextMode) {
       const rect = event.currentTarget.getBoundingClientRect();
@@ -2560,6 +2807,45 @@ onPointerUp={endWhiteout}
       top: draftWhiteout.top,
       width: draftWhiteout.width,
       height: draftWhiteout.height,
+    }}
+  />
+)}
+{annotateBoxes
+  .filter((box) => box.pageNumber === pageNumber)
+  .map((box) => {
+    const annotateScale = scale / box.viewScale;
+
+    return (
+      <div
+  key={box.id}
+  onPointerDown={(event) => startAnnotateMove(event, box)}
+  onPointerMove={moveAnnotateBox}
+  onPointerUp={endAnnotateMove}
+  className={`absolute z-10 cursor-move ${
+    selectedAnnotateId === box.id
+      ? "outline-2 outline-yellow-500"
+      : ""
+  }`}
+  style={{
+    left: box.left * annotateScale,
+    top: box.top * annotateScale,
+    width: box.width * annotateScale,
+    height: box.height * annotateScale,
+    backgroundColor: "rgba(250, 204, 21, 0.35)",
+  }}
+/>
+    );
+  })}
+
+{draftAnnotate && draftAnnotate.pageNumber === pageNumber && (
+  <div
+    className="pointer-events-none absolute z-20 border-2 border-dashed border-yellow-500"
+    style={{
+      left: draftAnnotate.left,
+      top: draftAnnotate.top,
+      width: draftAnnotate.width,
+      height: draftAnnotate.height,
+      backgroundColor: "rgba(250, 204, 21, 0.35)",
     }}
   />
 )}
@@ -2668,6 +2954,30 @@ onPointerMove={handleImageResizeMove}
 onPointerUp={handleImageResizeEnd}
  
     />
+  );
+})()}
+{selectedAnnotateBox && (() => {
+  const annotateScale = scale / selectedAnnotateBox.viewScale;
+
+  return (
+    <div
+      className="absolute z-50 flex items-center rounded-md border border-slate-300 bg-white p-1 shadow-xl"
+      style={{
+        left: selectedAnnotateBox.left * annotateScale,
+        top: Math.max(
+          5,
+          selectedAnnotateBox.top * annotateScale - 42
+        ),
+      }}
+      onPointerDown={(event) => event.stopPropagation()}
+    >
+      <button
+        onClick={deleteSelectedAnnotate}
+        className="rounded-md px-3 py-1.5 text-sm text-red-600 hover:bg-red-50"
+      >
+        Delete
+      </button>
+    </div>
   );
 })()}
 {selectedWhiteoutBox && (() => {
