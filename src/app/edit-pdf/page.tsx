@@ -1320,6 +1320,50 @@ if (!point1 || !point2) continue;
 
   outputPage.node.addAnnot(linkAnnotationRef);
 }
+for (const imageBox of imageBoxes) {
+  const outputPage = pages[imageBox.pageNumber - 1];
+
+  if (!outputPage) continue;
+
+  const response = await fetch(imageBox.src);
+  const imageBytes = await response.arrayBuffer();
+
+  const embeddedImage =
+    imageBox.mimeType === "image/png"
+      ? await outputPdf.embedPng(imageBytes)
+      : await outputPdf.embedJpg(imageBytes);
+
+  const topLeft = await viewportPointToPdfPoint(
+    imageBox.left,
+    imageBox.top,
+    imageBox.pageNumber,
+    imageBox.viewScale,
+    imageBox.viewRotation
+  );
+
+  const bottomRight = await viewportPointToPdfPoint(
+    imageBox.left + imageBox.width,
+    imageBox.top + imageBox.height,
+    imageBox.pageNumber,
+    imageBox.viewScale,
+    imageBox.viewRotation
+  );
+
+  if (!topLeft || !bottomRight) continue;
+
+  const x = Math.min(topLeft.x, bottomRight.x);
+  const y = Math.min(topLeft.y, bottomRight.y);
+
+  const width = Math.abs(bottomRight.x - topLeft.x);
+  const height = Math.abs(bottomRight.y - topLeft.y);
+
+  outputPage.drawImage(embeddedImage, {
+    x,
+    y,
+    width,
+    height,
+  });
+}
     /*
      * SAVE NEW PDF
      */
