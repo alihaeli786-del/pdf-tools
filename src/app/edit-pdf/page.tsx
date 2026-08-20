@@ -81,10 +81,29 @@ type TextEdit = {
   offsetX: number;
   offsetY: number;
 };
+type LinkBox = WhiteoutBox & {
+  url: string;
+};
+
+type LinkTargetType = "url" | "email" | "phone" | "page";
 
 type PageSize = {
   width: number;
   height: number;
+};
+type FormFieldType =
+  | "text"
+  | "multiline"
+  | "checkbox"
+  | "radio"
+  | "dropdown";
+
+type FormFieldBox = WhiteoutBox & {
+  fieldType: FormFieldType;
+  name: string;
+  value: string;
+  checked?: boolean;
+  options?: string[];
 };
 
 const fontOptions = [
@@ -133,6 +152,10 @@ export default function EditPdfPage() {
   const [annotateBoxes, setAnnotateBoxes] = useState<AnnotateBox[]>([]);
 const [draftAnnotate, setDraftAnnotate] = useState<AnnotateBox | null>(null);
 const [selectedAnnotateId, setSelectedAnnotateId] = useState<string | null>(null);
+const [linkBoxes, setLinkBoxes] = useState<LinkBox[]>([]);
+const [draftLinkBox, setDraftLinkBox] = useState<LinkBox | null>(null);
+const [selectedLinkBoxId, setSelectedLinkBoxId] =
+  useState<string | null>(null);
   const [selectedWhiteoutId, setSelectedWhiteoutId] = useState<string | null>(null);
   const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
   const [selectedTextId, setSelectedTextId] = useState<string | null>(null);
@@ -140,6 +163,7 @@ const [selectedAnnotateId, setSelectedAnnotateId] = useState<string | null>(null
   const [textEdits, setTextEdits] = useState<Record<string, TextEdit>>({});
   const [editBoxes, setEditBoxes] = useState<Record<string, TextBox>>({});
   const [moveMode, setMoveMode] = useState(false);
+  const [isTextDragging, setIsTextDragging] = useState(false);
   const [imageMoveMode, setImageMoveMode] = useState(false);
   const [showSignDialog, setShowSignDialog] = useState(false);
   const [signDialogMode, setSignDialogMode] =
@@ -149,6 +173,25 @@ const [selectedAnnotateId, setSelectedAnnotateId] = useState<string | null>(null
   const [addTextMode, setAddTextMode] = useState(false);
   const [whiteoutMode, setWhiteoutMode] = useState(false);
   const [annotateMode, setAnnotateMode] = useState(false);
+  const [linkAreaMode, setLinkAreaMode] = useState(false);
+  const [showFormsMenu, setShowFormsMenu] = useState(false);
+
+const [formFieldMode, setFormFieldMode] =
+  useState<FormFieldType | null>(null);
+
+const [formFields, setFormFields] = useState<FormFieldBox[]>([]);
+const [draftFormField, setDraftFormField] =
+  useState<FormFieldBox | null>(null);
+
+  const [selectedFormFieldId, setSelectedFormFieldId] =
+  useState<string | null>(null);
+
+const [showFormProperties, setShowFormProperties] =
+  useState(false);
+const [showLinkProperties, setShowLinkProperties] = useState(false);
+const [linkTargetType, setLinkTargetType] =
+  useState<LinkTargetType>("url");
+const [linkTargetValue, setLinkTargetValue] = useState("");
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -162,6 +205,20 @@ const signatureDrawingRef = useRef(false);
   const imageCounterRef = useRef(0);
   const whiteoutCounterRef = useRef(0);
   const annotateCounterRef = useRef(0);
+  const linkCounterRef = useRef(0);
+
+const linkDragRef = useRef<{
+  startX: number;
+  startY: number;
+} | null>(null);
+const linkMoveRef = useRef<{
+  id: string;
+  startX: number;
+  startY: number;
+  initialLeft: number;
+  initialTop: number;
+  moved: boolean;
+} | null>(null);
   const whiteoutDragRef = useRef<{
   startX: number;
   startY: number;
@@ -205,10 +262,23 @@ const imageResizeRef = useRef<{
   initialWidth: number;
   initialHeight: number;
 } | null>(null);
+const formFieldCounterRef = useRef(0);
+
+const formFieldDragRef = useRef<{
+  startX: number;
+  startY: number;
+} | null>(null);
+const formFieldMoveRef = useRef<{
+  id: string;
+  startX: number;
+  startY: number;
+  initialLeft: number;
+  initialTop: number;
+} | null>(null);
   const tools = [
     { label: "Text", icon: Type, enabled: true },
-    { label: "Links", icon: LinkIcon, enabled: false },
-    { label: "Forms", icon: FileInput, enabled: false },
+    { label: "Links", icon: LinkIcon, enabled: true },
+    { label: "Forms", icon: FileInput, enabled: true },
     { label: "Images", icon: ImageIcon, enabled: true },
     { label: "Sign", icon: PenLine, enabled: true },
     { label: "Whiteout", icon: Eraser, enabled: true },
@@ -224,6 +294,12 @@ const selectedImageBox =
   whiteoutBoxes.find((box) => box.id === selectedWhiteoutId) || null;
   const selectedAnnotateBox =
   annotateBoxes.find((box) => box.id === selectedAnnotateId) || null;
+  const selectedLinkBox =
+  linkBoxes.find((box) => box.id === selectedLinkBoxId) || null;
+  const selectedFormField =
+  formFields.find(
+    (field) => field.id === selectedFormFieldId
+  ) ?? null;
   const deleteSelectedImage = () => {
   if (!selectedImageId) return;
 
@@ -250,6 +326,72 @@ const deleteSelectedAnnotate = () => {
   );
 
   setSelectedAnnotateId(null);
+};
+const saveLinkProperties = () => {
+  if (!selectedLinkBoxId || !linkTargetValue.trim()) return;
+
+  let finalUrl = linkTargetValue.trim();
+
+  if (linkTargetType === "url") {
+    if (
+      !finalUrl.startsWith("http://") &&
+      !finalUrl.startsWith("https://")
+    ) {
+      finalUrl = `https://${finalUrl}`;
+    }
+  }
+
+  if (linkTargetType === "email") {
+    finalUrl = `mailto:${finalUrl}`;
+  }
+
+  if (linkTargetType === "phone") {
+    finalUrl = `tel:${finalUrl}`;
+  }
+
+  if (linkTargetType === "page") {
+    finalUrl = `page:${finalUrl}`;
+  }
+
+  setLinkBoxes((current) =>
+    current.map((box) =>
+      box.id === selectedLinkBoxId
+        ? { ...box, url: finalUrl }
+        : box
+    )
+  );
+
+  setShowLinkProperties(false);
+  setSelectedLinkBoxId(null);
+};
+
+const deleteSelectedLinkBox = () => {
+  if (!selectedLinkBoxId) return;
+
+  setLinkBoxes((current) =>
+    current.filter((box) => box.id !== selectedLinkBoxId)
+  );
+
+  setSelectedLinkBoxId(null);
+  setShowLinkProperties(false);
+};
+const closeLinkProperties = () => {
+  if (selectedLinkBoxId) {
+    const selectedLink = linkBoxes.find(
+      (box) => box.id === selectedLinkBoxId
+    );
+
+    if (selectedLink && !selectedLink.url.trim()) {
+      setLinkBoxes((current) =>
+        current.filter((box) => box.id !== selectedLinkBoxId)
+      );
+
+      setSelectedLinkBoxId(null);
+    }
+  }
+
+  setShowLinkProperties(false);
+  setLinkAreaMode(false);
 };
 const handleImageResizeStart = (
   event: React.PointerEvent<HTMLDivElement>
@@ -954,6 +1096,406 @@ const endAnnotate = (
 
   setDraftAnnotate(null);
 };
+const startLinkArea = (
+  event: React.PointerEvent<HTMLDivElement>
+) => {
+  if (!linkAreaMode) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+
+  const rect = event.currentTarget.getBoundingClientRect();
+  const x = event.clientX - rect.left;
+  const y = event.clientY - rect.top;
+
+  linkCounterRef.current += 1;
+
+  const newLink: LinkBox = {
+    id: `link-${pageNumber}-${linkCounterRef.current}`,
+    pageNumber,
+    viewScale: scale,
+    viewRotation: rotation,
+    left: x,
+    top: y,
+    width: 0,
+    height: 0,
+    url: "",
+  };
+
+  linkDragRef.current = {
+    startX: x,
+    startY: y,
+  };
+
+  setDraftLinkBox(newLink);
+  event.currentTarget.setPointerCapture(event.pointerId);
+};
+
+const moveLinkArea = (
+  event: React.PointerEvent<HTMLDivElement>
+) => {
+  if (!linkAreaMode) return;
+
+  const drag = linkDragRef.current;
+  if (!drag) return;
+
+  const rect = event.currentTarget.getBoundingClientRect();
+  const currentX = event.clientX - rect.left;
+  const currentY = event.clientY - rect.top;
+
+  setDraftLinkBox((current) =>
+    current
+      ? {
+          ...current,
+          left: Math.min(drag.startX, currentX),
+          top: Math.min(drag.startY, currentY),
+          width: Math.abs(currentX - drag.startX),
+          height: Math.abs(currentY - drag.startY),
+        }
+      : null
+  );
+};
+
+const endLinkArea = (
+  event: React.PointerEvent<HTMLDivElement>
+) => {
+  if (!linkAreaMode) return;
+
+  const currentLink = draftLinkBox;
+  linkDragRef.current = null;
+
+  if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+    event.currentTarget.releasePointerCapture(event.pointerId);
+  }
+
+  if (
+    currentLink &&
+    currentLink.width > 5 &&
+    currentLink.height > 5
+  ) {
+    setLinkBoxes((current) => [...current, currentLink]);
+    setSelectedLinkBoxId(currentLink.id);
+    setLinkTargetType("url");
+    setLinkTargetValue("");
+    setShowLinkProperties(true);
+    setLinkAreaMode(false);
+  }
+
+  setDraftLinkBox(null);
+};
+const startLinkMove = (
+  event: React.PointerEvent<HTMLDivElement>,
+  box: LinkBox
+) => {
+  if (linkAreaMode) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+
+  setSelectedLinkBoxId(box.id);
+
+  linkMoveRef.current = {
+    id: box.id,
+    startX: event.clientX,
+    startY: event.clientY,
+    initialLeft: box.left,
+    initialTop: box.top,
+    moved: false,
+  };
+
+  event.currentTarget.setPointerCapture(event.pointerId);
+};
+
+const moveLinkBox = (
+  event: React.PointerEvent<HTMLDivElement>
+) => {
+  const move = linkMoveRef.current;
+  if (!move) return;
+
+  const box = linkBoxes.find((item) => item.id === move.id);
+  if (!box) return;
+
+  const linkScale = scale / box.viewScale;
+
+  const deltaX = (event.clientX - move.startX) / linkScale;
+  const deltaY = (event.clientY - move.startY) / linkScale;
+
+  if (Math.abs(deltaX) > 2 || Math.abs(deltaY) > 2) {
+    move.moved = true;
+  }
+
+  setLinkBoxes((current) =>
+    current.map((item) =>
+      item.id === move.id
+        ? {
+            ...item,
+            left: move.initialLeft + deltaX,
+            top: move.initialTop + deltaY,
+          }
+        : item
+    )
+  );
+};
+
+const endLinkMove = (
+  event: React.PointerEvent<HTMLDivElement>,
+  box: LinkBox
+) => {
+  const move = linkMoveRef.current;
+  if (!move) return;
+
+  linkMoveRef.current = null;
+
+  if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+    event.currentTarget.releasePointerCapture(event.pointerId);
+  }
+
+  if (!move.moved) {
+    if (box.url.startsWith("mailto:")) {
+      setLinkTargetType("email");
+      setLinkTargetValue(box.url.replace(/^mailto:/, ""));
+    } else if (box.url.startsWith("tel:")) {
+      setLinkTargetType("phone");
+      setLinkTargetValue(box.url.replace(/^tel:/, ""));
+    } else if (box.url.startsWith("page:")) {
+      setLinkTargetType("page");
+      setLinkTargetValue(box.url.replace(/^page:/, ""));
+    } else {
+      setLinkTargetType("url");
+      setLinkTargetValue(box.url);
+    }
+
+    setShowLinkProperties(true);
+  }
+};
+const startFormField = (
+  event: React.PointerEvent<HTMLDivElement>
+) => {
+  if (!formFieldMode) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+
+  const rect = event.currentTarget.getBoundingClientRect();
+
+  const x = event.clientX - rect.left;
+  const y = event.clientY - rect.top;
+
+  formFieldCounterRef.current += 1;
+
+  const newField: FormFieldBox = {
+    id: `form-${pageNumber}-${formFieldCounterRef.current}`,
+    pageNumber,
+    viewScale: scale,
+    viewRotation: rotation,
+    left: x,
+    top: y,
+    width: 0,
+    height: 0,
+    fieldType: formFieldMode,
+    name: `Field_${formFieldCounterRef.current}`,
+    value: "",
+    checked: false,
+    options:
+      formFieldMode === "dropdown"
+        ? ["Option 1", "Option 2"]
+        : undefined,
+  };
+
+  formFieldDragRef.current = {
+    startX: x,
+    startY: y,
+  };
+
+  setDraftFormField(newField);
+
+  event.currentTarget.setPointerCapture(event.pointerId);
+};
+
+const moveFormField = (
+  event: React.PointerEvent<HTMLDivElement>
+) => {
+  if (!formFieldMode) return;
+
+  const drag = formFieldDragRef.current;
+  if (!drag) return;
+
+  const rect = event.currentTarget.getBoundingClientRect();
+
+  const currentX = event.clientX - rect.left;
+  const currentY = event.clientY - rect.top;
+
+  setDraftFormField((current) =>
+    current
+      ? {
+          ...current,
+          left: Math.min(drag.startX, currentX),
+          top: Math.min(drag.startY, currentY),
+          width: Math.abs(currentX - drag.startX),
+          height: Math.abs(currentY - drag.startY),
+        }
+      : null
+  );
+};
+
+const endFormField = (
+  event: React.PointerEvent<HTMLDivElement>
+) => {
+  if (!formFieldMode) return;
+
+  const currentField = draftFormField;
+
+  formFieldDragRef.current = null;
+
+  if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+    event.currentTarget.releasePointerCapture(event.pointerId);
+  }
+
+  if (
+  currentField &&
+  currentField.width > 5 &&
+  currentField.height > 5
+) {
+  let finalField = currentField;
+
+  if (
+    currentField.fieldType === "checkbox" ||
+    currentField.fieldType === "radio"
+  ) {
+    finalField = {
+      ...currentField,
+      width: 22,
+      height: 22,
+    };
+  }
+
+  if (currentField.fieldType === "text") {
+    finalField = {
+      ...currentField,
+      width: Math.max(currentField.width, 140),
+      height: 28,
+    };
+  }
+
+  if (currentField.fieldType === "multiline") {
+    finalField = {
+      ...currentField,
+      width: Math.max(currentField.width, 160),
+      height: Math.max(currentField.height, 70),
+    };
+  }
+
+  if (currentField.fieldType === "dropdown") {
+    finalField = {
+      ...currentField,
+      width: Math.max(currentField.width, 140),
+      height: 30,
+    };
+  }
+
+  setFormFields((current) => [
+    ...current,
+    finalField,
+  ]);
+
+  setSelectedFormFieldId(finalField.id);
+}
+
+  setDraftFormField(null);
+  setFormFieldMode(null);
+};
+const startFormFieldMove = (
+  event: React.PointerEvent<HTMLDivElement>,
+  field: FormFieldBox
+) => {
+  if (formFieldMode) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+
+  setSelectedFormFieldId(field.id);
+
+  formFieldMoveRef.current = {
+    id: field.id,
+    startX: event.clientX,
+    startY: event.clientY,
+    initialLeft: field.left,
+    initialTop: field.top,
+  };
+
+  event.currentTarget.setPointerCapture(event.pointerId);
+};
+
+const moveFormFieldBox = (
+  event: React.PointerEvent<HTMLDivElement>,
+  field: FormFieldBox
+) => {
+  const move = formFieldMoveRef.current;
+
+  if (!move || move.id !== field.id) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+
+  const fieldScale = scale / field.viewScale;
+
+  const deltaX = (event.clientX - move.startX) / fieldScale;
+  const deltaY = (event.clientY - move.startY) / fieldScale;
+
+  setFormFields((current) =>
+    current.map((item) =>
+      item.id === field.id
+        ? {
+            ...item,
+            left: move.initialLeft + deltaX,
+            top: move.initialTop + deltaY,
+          }
+        : item
+    )
+  );
+};
+
+const endFormFieldMove = (
+  event: React.PointerEvent<HTMLDivElement>
+) => {
+  event.preventDefault();
+  event.stopPropagation();
+
+  formFieldMoveRef.current = null;
+
+  if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+    event.currentTarget.releasePointerCapture(event.pointerId);
+  }
+};
+
+const deleteSelectedFormField = () => {
+  if (!selectedFormFieldId) return;
+
+  setFormFields((current) =>
+    current.filter(
+      (field) => field.id !== selectedFormFieldId
+    )
+  );
+
+  setSelectedFormFieldId(null);
+};
+const updateSelectedFormField = (
+  updates: Partial<FormFieldBox>
+) => {
+  if (!selectedFormFieldId) return;
+
+  setFormFields((current) =>
+    current.map((field) =>
+      field.id === selectedFormFieldId
+        ? { ...field, ...updates }
+        : field
+    )
+  );
+};
+
+const closeFormProperties = () => {
+  setShowFormProperties(false);
+};
 const startAnnotateMove = (
   event: React.PointerEvent<HTMLDivElement>,
   box: AnnotateBox
@@ -1615,12 +2157,14 @@ const applyChanges = async () => {
     setMoveMode(false);
 
     const {
-      PDFDocument,
-      StandardFonts,
-      rgb,
-      degrees,
-      PDFString,
-    } = await import("pdf-lib");
+  PDFDocument,
+  StandardFonts,
+  rgb,
+  degrees,
+  PDFName,
+  PDFArray,
+  PDFString,
+} = await import("pdf-lib");
 
     const originalBytes = await file.arrayBuffer();
 
@@ -2150,6 +2694,246 @@ for (const annotateBox of annotateBoxes) {
     opacity: 0.35,
   });
 }
+for (const linkBox of linkBoxes) {
+  if (!linkBox.url.trim()) continue;
+
+  const outputPage = outputPdf.getPage(
+    linkBox.pageNumber - 1
+  );
+
+  const topLeft = await viewportPointToPdfPoint(
+    linkBox.left,
+    linkBox.top,
+    linkBox.pageNumber,
+    linkBox.viewScale,
+    linkBox.viewRotation
+  );
+
+  const bottomRight = await viewportPointToPdfPoint(
+    linkBox.left + linkBox.width,
+    linkBox.top + linkBox.height,
+    linkBox.pageNumber,
+    linkBox.viewScale,
+    linkBox.viewRotation
+  );
+
+  if (!topLeft || !bottomRight) continue;
+
+  const x1 = Math.min(topLeft.x, bottomRight.x);
+  const y1 = Math.min(topLeft.y, bottomRight.y);
+  const x2 = Math.max(topLeft.x, bottomRight.x);
+  const y2 = Math.max(topLeft.y, bottomRight.y);
+
+  let linkAnnotation;
+
+  if (linkBox.url.startsWith("page:")) {
+    const targetPageNumber = Number(
+      linkBox.url.replace(/^page:/, "")
+    );
+
+    if (
+      !Number.isInteger(targetPageNumber) ||
+      targetPageNumber < 1 ||
+      targetPageNumber > outputPdf.getPageCount()
+    ) {
+      continue;
+    }
+
+    const targetPage = outputPdf.getPage(
+      targetPageNumber - 1
+    );
+
+    linkAnnotation = outputPdf.context.register(
+      outputPdf.context.obj({
+        Type: "Annot",
+        Subtype: "Link",
+        Rect: [x1, y1, x2, y2],
+        Border: [0, 0, 0],
+        Dest: [
+          targetPage.ref,
+          PDFName.of("Fit"),
+        ],
+      })
+    );
+  } else {
+    linkAnnotation = outputPdf.context.register(
+      outputPdf.context.obj({
+        Type: "Annot",
+        Subtype: "Link",
+        Rect: [x1, y1, x2, y2],
+        Border: [0, 0, 0],
+        A: {
+          Type: "Action",
+          S: "URI",
+          URI: PDFString.of(linkBox.url),
+        },
+      })
+    );
+  }
+
+  let annotations;
+
+  try {
+    annotations = outputPage.node.lookup(
+      PDFName.of("Annots"),
+      PDFArray
+    );
+  } catch {
+    annotations = outputPdf.context.obj([]);
+
+    outputPage.node.set(
+      PDFName.of("Annots"),
+      annotations
+    );
+  }
+
+  annotations.push(linkAnnotation);
+}
+const pdfForm = outputPdf.getForm();
+const formFont = await outputPdf.embedFont(
+  StandardFonts.Helvetica
+);
+const createdRadioGroups = new Set<string>();
+for (const field of formFields) {
+  const outputPage = outputPdf.getPage(field.pageNumber - 1);
+  const { width: pageWidth, height: pageHeight } =
+    outputPage.getSize();
+
+  const fieldLeft = field.left / field.viewScale;
+  const fieldTop = field.top / field.viewScale;
+  const fieldWidth = field.width / field.viewScale;
+  const fieldHeight = field.height / field.viewScale;
+
+  let x = fieldLeft;
+  let y = pageHeight - fieldTop - fieldHeight;
+  let width = fieldWidth;
+  let height = fieldHeight;
+
+  if (field.viewRotation === 90) {
+    x = fieldTop;
+    y = fieldLeft;
+    width = fieldHeight;
+    height = fieldWidth;
+  } else if (field.viewRotation === 180) {
+    x = pageWidth - fieldLeft - fieldWidth;
+    y = fieldTop;
+  } else if (field.viewRotation === 270) {
+    x = pageWidth - fieldTop - fieldHeight;
+    y = pageHeight - fieldLeft - fieldWidth;
+    width = fieldHeight;
+    height = fieldWidth;
+  }
+
+  const fieldName = field.name || field.id;
+
+  if (field.fieldType === "text") {
+  const textField = pdfForm.createTextField(fieldName);
+
+  if (field.value) {
+    textField.setText(field.value);
+  }
+
+  textField.addToPage(outputPage, {
+    x,
+    y,
+    width,
+    height,
+    borderWidth: 1,
+    font: formFont,
+  });
+
+  textField.setFontSize(12);
+  textField.updateAppearances(formFont);
+}
+
+  if (field.fieldType === "multiline") {
+  const textField = pdfForm.createTextField(fieldName);
+
+  textField.enableMultiline();
+
+  if (field.value) {
+    textField.setText(field.value);
+  }
+
+  textField.addToPage(outputPage, {
+    x,
+    y,
+    width,
+    height,
+    borderWidth: 1,
+    font: formFont,
+  });
+
+  textField.setFontSize(12);
+  textField.updateAppearances(formFont);
+}
+
+  if (field.fieldType === "checkbox") {
+    const checkBox = pdfForm.createCheckBox(fieldName);
+
+    checkBox.addToPage(outputPage, {
+      x,
+      y,
+      width,
+      height,
+      borderWidth: 1,
+    });
+
+    if (field.checked) {
+      checkBox.check();
+    }
+  }
+
+  if (field.fieldType === "radio") {
+  let radioGroup;
+
+  if (createdRadioGroups.has(fieldName)) {
+    radioGroup = pdfForm.getRadioGroup(fieldName);
+  } else {
+    radioGroup = pdfForm.createRadioGroup(fieldName);
+    createdRadioGroups.add(fieldName);
+  }
+
+  radioGroup.addOptionToPage(
+    field.value || `Option_${field.id}`,
+    outputPage,
+    {
+      x,
+      y,
+      width,
+      height,
+      borderWidth: 1,
+    }
+  );
+}
+
+  if (field.fieldType === "dropdown") {
+  const dropdown = pdfForm.createDropdown(fieldName);
+
+  const options =
+    field.options && field.options.length > 0
+      ? field.options
+      : ["Option 1", "Option 2"];
+
+  dropdown.addOptions(options);
+
+  if (field.value && options.includes(field.value)) {
+    dropdown.select(field.value);
+  }
+
+  dropdown.addToPage(outputPage, {
+    x,
+    y,
+    width,
+    height,
+    borderWidth: 1,
+    font: formFont,
+  });
+
+  dropdown.setFontSize(12);
+  dropdown.updateAppearances(formFont);
+}
+}
     /*
      * SAVE NEW PDF
      */
@@ -2572,6 +3356,321 @@ onPointerUp={stopSignatureDrawing}
     </div>
   </div>
 )}
+{showFormProperties && selectedFormField && (
+  <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/30">
+    <div
+      className="w-[420px] rounded-xl bg-white p-5 shadow-2xl"
+      onClick={(event) => event.stopPropagation()}
+    >
+      <div className="mb-5 flex items-center justify-between">
+        <div>
+          <h3 className="text-lg font-semibold text-slate-900">
+            Form Properties
+          </h3>
+          <p className="text-xs text-slate-500">
+            {selectedFormField.fieldType}
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={closeFormProperties}
+          className="rounded-md px-2 py-1 text-xl text-slate-500 hover:bg-slate-100"
+        >
+          ×
+        </button>
+      </div>
+
+      <div className="space-y-4">
+        <div>
+          <label className="mb-1 block text-sm font-medium text-slate-700">
+            Field name
+          </label>
+
+          <input
+            type="text"
+            value={selectedFormField.name}
+            onChange={(event) =>
+              updateSelectedFormField({
+                name: event.target.value,
+              })
+            }
+            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+          />
+        </div>
+
+        {(selectedFormField.fieldType === "text" ||
+          selectedFormField.fieldType === "multiline") && (
+          <div>
+            <label className="mb-1 block text-sm font-medium text-slate-700">
+              Default value
+            </label>
+
+            {selectedFormField.fieldType === "multiline" ? (
+              <textarea
+                value={selectedFormField.value}
+                onChange={(event) =>
+                  updateSelectedFormField({
+                    value: event.target.value,
+                  })
+                }
+                rows={4}
+                className="w-full resize-none rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+              />
+            ) : (
+              <input
+                type="text"
+                value={selectedFormField.value}
+                onChange={(event) =>
+                  updateSelectedFormField({
+                    value: event.target.value,
+                  })
+                }
+                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+              />
+            )}
+          </div>
+        )}
+
+        {selectedFormField.fieldType === "checkbox" && (
+          <label className="flex items-center gap-3 rounded-md border border-slate-200 p-3">
+            <input
+              type="checkbox"
+              checked={selectedFormField.checked ?? false}
+              onChange={(event) =>
+                updateSelectedFormField({
+                  checked: event.target.checked,
+                })
+              }
+            />
+
+            <span className="text-sm text-slate-700">
+              Checked by default
+            </span>
+          </label>
+        )}
+
+        {selectedFormField.fieldType === "radio" && (
+          <div>
+            <label className="mb-1 block text-sm font-medium text-slate-700">
+              Radio option value
+            </label>
+
+            <input
+              type="text"
+              value={selectedFormField.value}
+              placeholder="Option 1"
+              onChange={(event) =>
+                updateSelectedFormField({
+                  value: event.target.value,
+                })
+              }
+              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+            />
+
+            <p className="mt-1 text-xs text-slate-500">
+              Radio buttons with the same field name will belong to the same group.
+            </p>
+          </div>
+        )}
+
+        {selectedFormField.fieldType === "dropdown" && (
+          <div>
+            <label className="mb-1 block text-sm font-medium text-slate-700">
+              Dropdown options
+            </label>
+
+            <textarea
+              value={(selectedFormField.options ?? []).join("\n")}
+              onChange={(event) =>
+                updateSelectedFormField({
+                  options: event.target.value.split("\n"),
+                })
+              }
+              rows={5}
+              placeholder={"Option 1\nOption 2\nOption 3"}
+              className="w-full resize-none rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+            />
+
+            <p className="mt-1 text-xs text-slate-500">
+              Enter one option per line.
+            </p>
+          </div>
+        )}
+      </div>
+
+      <div className="mt-6 flex items-center justify-between border-t border-slate-200 pt-4">
+        <button
+          type="button"
+          onClick={() => {
+            deleteSelectedFormField();
+            setShowFormProperties(false);
+          }}
+          className="rounded-md bg-red-50 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-100"
+        >
+          Delete field
+        </button>
+
+        <button
+          type="button"
+          onClick={closeFormProperties}
+          className="rounded-md bg-blue-600 px-5 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+        >
+          Done
+        </button>
+      </div>
+    </div>
+  </div>
+)}
+{showLinkProperties && selectedLinkBox && (
+  <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/30">
+    <div className="w-[430px] max-w-[92vw] rounded-xl bg-white p-6 shadow-2xl">
+      <div className="mb-5 flex items-center justify-between">
+        <h2 className="text-xl font-semibold text-slate-900">
+          Link properties
+        </h2>
+
+        <button
+          onClick={closeLinkProperties}
+          className="text-2xl leading-none text-slate-400 hover:text-slate-700"
+        >
+          ×
+        </button>
+      </div>
+
+      <div className="space-y-4">
+        <label className="block">
+          <div className="mb-2 flex items-center gap-2">
+            <input
+              type="radio"
+              name="linkTarget"
+              checked={linkTargetType === "url"}
+              onChange={() => setLinkTargetType("url")}
+            />
+            <span className="text-sm font-medium text-slate-700">
+              Link to external URL
+            </span>
+          </div>
+
+          <input
+            type="text"
+            disabled={linkTargetType !== "url"}
+            value={linkTargetType === "url" ? linkTargetValue : ""}
+            onChange={(event) => setLinkTargetValue(event.target.value)}
+            placeholder="https://example.com"
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 outline-none disabled:bg-slate-50 disabled:text-slate-400 focus:border-blue-500"
+          />
+        </label>
+
+        <label className="block">
+          <div className="mb-2 flex items-center gap-2">
+            <input
+              type="radio"
+              name="linkTarget"
+              checked={linkTargetType === "email"}
+              onChange={() => {
+                setLinkTargetType("email");
+                setLinkTargetValue("");
+              }}
+            />
+            <span className="text-sm font-medium text-slate-700">
+              Link to email address
+            </span>
+          </div>
+
+          <input
+            type="email"
+            disabled={linkTargetType !== "email"}
+            value={linkTargetType === "email" ? linkTargetValue : ""}
+            onChange={(event) => setLinkTargetValue(event.target.value)}
+            placeholder="you@example.com"
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 outline-none disabled:bg-slate-50 disabled:text-slate-400 focus:border-blue-500"
+          />
+        </label>
+
+        <label className="block">
+          <div className="mb-2 flex items-center gap-2">
+            <input
+              type="radio"
+              name="linkTarget"
+              checked={linkTargetType === "phone"}
+              onChange={() => {
+                setLinkTargetType("phone");
+                setLinkTargetValue("");
+              }}
+            />
+            <span className="text-sm font-medium text-slate-700">
+              Link to phone number
+            </span>
+          </div>
+
+          <input
+            type="text"
+            disabled={linkTargetType !== "phone"}
+            value={linkTargetType === "phone" ? linkTargetValue : ""}
+            onChange={(event) => setLinkTargetValue(event.target.value)}
+            placeholder="+1234567890"
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 outline-none disabled:bg-slate-50 disabled:text-slate-400 focus:border-blue-500"
+          />
+        </label>
+
+        <label className="block">
+          <div className="mb-2 flex items-center gap-2">
+            <input
+              type="radio"
+              name="linkTarget"
+              checked={linkTargetType === "page"}
+              onChange={() => {
+                setLinkTargetType("page");
+                setLinkTargetValue("");
+              }}
+            />
+            <span className="text-sm font-medium text-slate-700">
+              Link to internal page
+            </span>
+          </div>
+
+          <input
+            type="number"
+            min={1}
+            max={pageCount}
+            disabled={linkTargetType !== "page"}
+            value={linkTargetType === "page" ? linkTargetValue : ""}
+            onChange={(event) => setLinkTargetValue(event.target.value)}
+            placeholder={`1 - ${pageCount}`}
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 outline-none disabled:bg-slate-50 disabled:text-slate-400 focus:border-blue-500"
+          />
+        </label>
+      </div>
+
+      <div className="mt-6 flex items-center justify-between border-t border-slate-200 pt-4">
+        <button
+          onClick={deleteSelectedLinkBox}
+          className="text-sm font-medium text-red-600 hover:text-red-700"
+        >
+          Delete link
+        </button>
+
+        <div className="flex gap-2">
+          <button
+            onClick={closeLinkProperties}
+            className="rounded-lg px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100"
+          >
+            Close
+          </button>
+
+          <button
+            onClick={saveLinkProperties}
+            disabled={!linkTargetValue.trim()}
+            className="rounded-lg bg-blue-600 px-5 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+          >
+            Apply
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+)}
       <header className="border-b border-slate-200 bg-white">
         <div className="flex min-h-16 items-center justify-between gap-4 px-4">
           <div className="flex items-center gap-3">
@@ -2614,8 +3713,9 @@ onPointerUp={stopSignatureDrawing}
             const Icon = tool.icon;
 
             return (
+            <div key={tool.label} className="relative">  
               <button
-                key={tool.label}
+                
                 onClick={() => {
   if (tool.label === "Text") {
     setAddTextMode((current) => !current);
@@ -2647,6 +3747,30 @@ if (tool.label === "Annotate") {
   setSelectedWhiteoutId(null);
   setMoveMode(false);
 }
+if (tool.label === "Links") {
+  setLinkAreaMode((current) => !current);
+  setAnnotateMode(false);
+  setWhiteoutMode(false);
+  setAddTextMode(false);
+  setSelectedTextId(null);
+  setSelectedImageId(null);
+  setSelectedWhiteoutId(null);
+  setSelectedAnnotateId(null);
+}
+if (tool.label === "Forms") {
+  setShowFormsMenu((current) => !current);
+
+  setAddTextMode(false);
+  setWhiteoutMode(false);
+  setAnnotateMode(false);
+  setLinkAreaMode(false);
+
+  setSelectedTextId(null);
+  setSelectedImageId(null);
+  setSelectedWhiteoutId(null);
+  setSelectedAnnotateId(null);
+  setSelectedLinkBoxId(null);
+}
 }}
 
                 disabled={!tool.enabled}
@@ -2654,7 +3778,9 @@ if (tool.label === "Annotate") {
                   tool.enabled
   ? (tool.label === "Text" && addTextMode) ||
 (tool.label === "Whiteout" && whiteoutMode) ||
-(tool.label === "Annotate" && annotateMode)
+(tool.label === "Annotate" && annotateMode) ||
+(tool.label === "Links" && linkAreaMode) ||
+(tool.label === "Forms" && formFieldMode !== null)
     ? "bg-blue-600 text-white"
     : "bg-blue-50 text-blue-700"
   : "text-slate-400"
@@ -2663,6 +3789,64 @@ if (tool.label === "Annotate") {
                 <Icon size={17} />
                 {tool.label}
               </button>
+              {tool.label === "Forms" && showFormsMenu && (
+  <div className="absolute left-0 top-full z-[100] mt-2 w-64 rounded-lg border border-slate-200 bg-white p-2 shadow-xl">
+    <div className="px-3 py-2 text-xs font-semibold uppercase text-slate-400">
+      Add new form fields
+    </div>
+
+    <button
+      onClick={() => {
+        setFormFieldMode("text");
+        setShowFormsMenu(false);
+      }}
+      className="w-full rounded-md px-3 py-2 text-left text-sm text-slate-700 hover:bg-blue-50 hover:text-blue-700"
+    >
+      Text field
+    </button>
+
+    <button
+      onClick={() => {
+        setFormFieldMode("multiline");
+        setShowFormsMenu(false);
+      }}
+      className="w-full rounded-md px-3 py-2 text-left text-sm text-slate-700 hover:bg-blue-50 hover:text-blue-700"
+    >
+      Text multiline
+    </button>
+
+    <button
+      onClick={() => {
+        setFormFieldMode("checkbox");
+        setShowFormsMenu(false);
+      }}
+      className="w-full rounded-md px-3 py-2 text-left text-sm text-slate-700 hover:bg-blue-50 hover:text-blue-700"
+    >
+      Checkbox
+    </button>
+
+    <button
+      onClick={() => {
+        setFormFieldMode("radio");
+        setShowFormsMenu(false);
+      }}
+      className="w-full rounded-md px-3 py-2 text-left text-sm text-slate-700 hover:bg-blue-50 hover:text-blue-700"
+    >
+      Radio button
+    </button>
+
+    <button
+      onClick={() => {
+        setFormFieldMode("dropdown");
+        setShowFormsMenu(false);
+      }}
+      className="w-full rounded-md px-3 py-2 text-left text-sm text-slate-700 hover:bg-blue-50 hover:text-blue-700"
+    >
+      Drop-down list
+    </button>
+  </div>
+)}
+              </div>
             );
           })}
 
@@ -2742,17 +3926,23 @@ if (tool.label === "Annotate") {
     width: pageSize.width,
     height: pageSize.height,
   }}
-  onPointerDown={(event) => {
+ onPointerDown={(event) => {
   startWhiteout(event);
   startAnnotate(event);
+  startLinkArea(event);
+  startFormField(event);
 }}
 onPointerMove={(event) => {
   moveWhiteout(event);
   moveAnnotate(event);
+  moveLinkArea(event);
+  moveFormField(event);
 }}
 onPointerUp={(event) => {
   endWhiteout(event);
   endAnnotate(event);
+  endLinkArea(event);
+  endFormField(event);
 }}
   onMouseDown={(event) => {
     if (addTextMode) {
@@ -2846,6 +4036,150 @@ onPointerUp={(event) => {
       width: draftAnnotate.width,
       height: draftAnnotate.height,
       backgroundColor: "rgba(250, 204, 21, 0.35)",
+    }}
+  />
+)}
+{linkBoxes
+  .filter((box) => box.pageNumber === pageNumber)
+  .map((box) => {
+    const linkScale = scale / box.viewScale;
+
+    return (
+      <div
+        key={box.id}
+        onPointerDown={(event) => startLinkMove(event, box)}
+onPointerMove={moveLinkBox}
+onPointerUp={(event) => endLinkMove(event, box)}
+        className={`absolute z-30 cursor-pointer border-2 border-dashed ${
+  selectedLinkBoxId === box.id
+    ? "border-blue-600 bg-blue-100/20"
+    : "border-transparent bg-transparent"
+}`}
+        style={{
+          left: box.left * linkScale,
+          top: box.top * linkScale,
+          width: box.width * linkScale,
+          height: box.height * linkScale,
+        }}
+        
+      />
+    );
+  })}
+{formFields
+  .filter((field) => field.pageNumber === pageNumber)
+  .map((field) => {
+    const fieldScale = scale / field.viewScale;
+
+    const width = field.width * fieldScale;
+    const height = field.height * fieldScale;
+
+    return (
+      <div
+        key={field.id}
+        onPointerDown={(event) =>
+  startFormFieldMove(event, field)
+}
+onPointerMove={(event) =>
+  moveFormFieldBox(event, field)
+}
+onPointerUp={endFormFieldMove}
+        className={`absolute z-30 flex items-center ${
+          selectedFormFieldId === field.id
+            ? "ring-2 ring-blue-500"
+            : ""
+        }`}
+        style={{
+          left: field.left * fieldScale,
+          top: field.top * fieldScale,
+          width,
+          height,
+        }}
+        onClick={(event) => {
+          event.stopPropagation();
+          setSelectedFormFieldId(field.id);
+          setShowFormProperties(true);
+        }}
+      >
+        {field.fieldType === "text" && (
+  <div className="h-full w-full border border-slate-500 bg-white px-2 text-xs text-slate-700">
+    {field.value || "Text field"}
+  </div>
+)}
+
+        {field.fieldType === "multiline" && (
+  <div className="h-full w-full whitespace-pre-wrap border border-slate-500 bg-white p-2 text-xs text-slate-700">
+    {field.value || "Multiline text"}
+  </div>
+)}
+
+        {field.fieldType === "checkbox" && (
+  <div className="flex h-full w-full items-center justify-center border-2 border-slate-600 bg-white text-lg font-bold text-slate-800">
+    {field.checked ? "✓" : ""}
+  </div>
+)}
+
+        {field.fieldType === "radio" && (
+          <div className="h-full w-full rounded-full border-2 border-slate-600 bg-white" />
+        )}
+
+        {field.fieldType === "dropdown" && (
+  <div className="flex h-full w-full items-center justify-between border border-slate-500 bg-white px-2 text-xs text-slate-500">
+    <span>
+      {field.value ||
+        field.options?.[0] ||
+        "Option 1"}
+    </span>
+    <span>▼</span>
+  </div>
+)}
+        {selectedFormFieldId === field.id && (
+  <button
+    type="button"
+    onPointerDown={(event) => {
+      event.preventDefault();
+      event.stopPropagation();
+    }}
+    onClick={(event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      deleteSelectedFormField();
+    }}
+    className="absolute -right-2 -top-8 rounded-md bg-red-600 px-2 py-1 text-xs font-semibold text-white shadow-md hover:bg-red-700"
+  >
+    Delete
+  </button>
+)}
+      </div>
+    );
+  })}
+  {draftFormField &&
+  draftFormField.pageNumber === pageNumber && (
+    <div
+      className="pointer-events-none absolute z-40 border-2 border-dashed border-blue-500 bg-blue-100/20"
+      style={{
+        left:
+          draftFormField.left *
+          (scale / draftFormField.viewScale),
+        top:
+          draftFormField.top *
+          (scale / draftFormField.viewScale),
+        width:
+          draftFormField.width *
+          (scale / draftFormField.viewScale),
+        height:
+          draftFormField.height *
+          (scale / draftFormField.viewScale),
+      }}
+    />
+  )}
+{draftLinkBox && draftLinkBox.pageNumber === pageNumber && (
+  <div
+    className="pointer-events-none absolute z-30 border-2 border-dashed border-blue-500 bg-blue-100/20"
+    style={{
+      left: draftLinkBox.left,
+      top: draftLinkBox.top,
+      width: draftLinkBox.width,
+      height: draftLinkBox.height,
     }}
   />
 )}
@@ -3038,7 +4372,7 @@ onPointerUp={handleImageResizeEnd}
     </div>
   );
 })()}
-          {selectedBox && (() => {
+          {selectedBox && !isTextDragging &&  (() => {
             const edit = getTextEdit(selectedBox);
 
             const x = selectedBox.left;
@@ -3268,6 +4602,7 @@ const y = selectedBox.top;
               initialX: activeEdit.offsetX,
               initialY: activeEdit.offsetY,
             };
+            setIsTextDragging(true);
           }}
 
           onPointerMove={(event) => {
@@ -3296,6 +4631,7 @@ const y = selectedBox.top;
 
           onPointerUp={() => {
             dragRef.current = null;
+            setIsTextDragging(false);
           }}
 
           onClick={(event) => event.stopPropagation()}
