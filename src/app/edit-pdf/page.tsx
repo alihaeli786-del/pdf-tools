@@ -97,6 +97,23 @@ type FormFieldType =
   | "checkbox"
   | "radio"
   | "dropdown";
+type ShapeType =
+  | "rectangle"
+  | "circle"
+  | "line"
+  | "arrow";
+
+type ShapeBox = WhiteoutBox & {
+  shapeType: ShapeType;
+  startX: number;
+  startY: number;
+  endX: number;
+  endY: number;
+  strokeColor: string;
+  fillColor: string;
+  strokeWidth: number;
+  opacity: number;
+};
 
 type FormFieldBox = WhiteoutBox & {
   fieldType: FormFieldType;
@@ -175,6 +192,21 @@ const [selectedLinkBoxId, setSelectedLinkBoxId] =
   const [annotateMode, setAnnotateMode] = useState(false);
   const [linkAreaMode, setLinkAreaMode] = useState(false);
   const [showFormsMenu, setShowFormsMenu] = useState(false);
+  const [showShapesMenu, setShowShapesMenu] = useState(false);
+
+const [shapeMode, setShapeMode] =
+  useState<ShapeType | null>(null);
+
+const [shapeBoxes, setShapeBoxes] =
+  useState<ShapeBox[]>([]);
+
+const [draftShapeBox, setDraftShapeBox] =
+  useState<ShapeBox | null>(null);
+
+const [selectedShapeId, setSelectedShapeId] =
+  useState<string | null>(null);
+  const [showShapeProperties, setShowShapeProperties] =
+  useState(false);
 
 const [formFieldMode, setFormFieldMode] =
   useState<FormFieldType | null>(null);
@@ -263,6 +295,23 @@ const imageResizeRef = useRef<{
   initialHeight: number;
 } | null>(null);
 const formFieldCounterRef = useRef(0);
+const shapeCounterRef = useRef(0);
+
+const shapeDragRef = useRef<{
+  startX: number;
+  startY: number;
+} | null>(null);
+const shapeMoveRef = useRef<{
+  id: string;
+  startX: number;
+  startY: number;
+  initialLeft: number;
+  initialTop: number;
+  initialStartX: number;
+  initialStartY: number;
+  initialEndX: number;
+  initialEndY: number;
+} | null>(null);
 
 const formFieldDragRef = useRef<{
   startX: number;
@@ -283,7 +332,7 @@ const formFieldMoveRef = useRef<{
     { label: "Sign", icon: PenLine, enabled: true },
     { label: "Whiteout", icon: Eraser, enabled: true },
     { label: "Annotate", icon: Highlighter, enabled: true },
-    { label: "Shapes", icon: Shapes, enabled: false },
+    { label: "Shapes", icon: Shapes, enabled: true },
   ];
 
   const selectedBox =
@@ -299,6 +348,10 @@ const selectedImageBox =
   const selectedFormField =
   formFields.find(
     (field) => field.id === selectedFormFieldId
+  ) ?? null;
+  const selectedShape =
+  shapeBoxes.find(
+    (shape) => shape.id === selectedShapeId
   ) ?? null;
   const deleteSelectedImage = () => {
   if (!selectedImageId) return;
@@ -1404,6 +1457,214 @@ const endFormField = (
   setDraftFormField(null);
   setFormFieldMode(null);
 };
+const startShape = (
+  event: React.PointerEvent<HTMLDivElement>
+) => {
+  if (!shapeMode) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+
+  const rect = event.currentTarget.getBoundingClientRect();
+
+  const x = event.clientX - rect.left;
+  const y = event.clientY - rect.top;
+
+  shapeCounterRef.current += 1;
+
+  const newShape: ShapeBox = {
+    id: `shape-${pageNumber}-${shapeCounterRef.current}`,
+    pageNumber,
+    viewScale: scale,
+    viewRotation: rotation,
+    left: x,
+    top: y,
+    width: 0,
+    height: 0,
+    shapeType: shapeMode,
+    strokeColor: "#1d4ed8",
+fillColor: "#ffffff",
+strokeWidth: 2,
+opacity: 1,
+    startX: x,
+    startY: y,
+    endX: x,
+    endY: y,
+  };
+
+  shapeDragRef.current = {
+    startX: x,
+    startY: y,
+  };
+
+  setDraftShapeBox(newShape);
+
+  event.currentTarget.setPointerCapture(event.pointerId);
+};
+
+const moveShape = (
+  event: React.PointerEvent<HTMLDivElement>
+) => {
+  if (!shapeMode) return;
+
+  const drag = shapeDragRef.current;
+  if (!drag) return;
+
+  const rect = event.currentTarget.getBoundingClientRect();
+
+  const currentX = event.clientX - rect.left;
+  const currentY = event.clientY - rect.top;
+
+  setDraftShapeBox((current) =>
+    current
+      ? {
+          ...current,
+          left: Math.min(drag.startX, currentX),
+          top: Math.min(drag.startY, currentY),
+          width: Math.abs(currentX - drag.startX),
+          height: Math.abs(currentY - drag.startY),
+          endX: currentX,
+          endY: currentY,
+        }
+      : null
+  );
+};
+
+const endShape = (
+  event: React.PointerEvent<HTMLDivElement>
+) => {
+  if (!shapeMode) return;
+
+  const drag = shapeDragRef.current;
+
+  if (!drag || !draftShapeBox) {
+    setDraftShapeBox(null);
+    setShapeMode(null);
+    return;
+  }
+
+  const rect = event.currentTarget.getBoundingClientRect();
+
+  const endX = event.clientX - rect.left;
+  const endY = event.clientY - rect.top;
+
+  const width = Math.abs(endX - drag.startX);
+  const height = Math.abs(endY - drag.startY);
+
+  const finalShape: ShapeBox = {
+    ...draftShapeBox,
+    left: Math.min(drag.startX, endX),
+    top: Math.min(drag.startY, endY),
+    width,
+    height,
+    startX: drag.startX,
+    startY: drag.startY,
+    endX,
+    endY,
+  };
+
+  const lineLength = Math.hypot(
+    endX - drag.startX,
+    endY - drag.startY
+  );
+
+  const isValid =
+    shapeMode === "line" || shapeMode === "arrow"
+      ? lineLength > 5
+      : width > 5 && height > 5;
+
+  if (isValid) {
+    setShapeBoxes((current) => [
+      ...current,
+      finalShape,
+    ]);
+
+    setSelectedShapeId(finalShape.id);
+  }
+
+  shapeDragRef.current = null;
+
+  if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+    event.currentTarget.releasePointerCapture(event.pointerId);
+  }
+
+  setDraftShapeBox(null);
+  setShapeMode(null);
+};
+const startShapeMove = (
+  event: React.PointerEvent<HTMLDivElement>,
+  shape: ShapeBox
+) => {
+  if (shapeMode) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+
+  setSelectedShapeId(shape.id);
+
+  shapeMoveRef.current = {
+    id: shape.id,
+    startX: event.clientX,
+    startY: event.clientY,
+    initialLeft: shape.left,
+    initialTop: shape.top,
+    initialStartX: shape.startX,
+    initialStartY: shape.startY,
+    initialEndX: shape.endX,
+    initialEndY: shape.endY,
+  };
+
+  event.currentTarget.setPointerCapture(event.pointerId);
+};
+
+const moveShapeBox = (
+  event: React.PointerEvent<HTMLDivElement>,
+  shape: ShapeBox
+) => {
+  const move = shapeMoveRef.current;
+
+  if (!move || move.id !== shape.id) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+
+  const shapeScale = scale / shape.viewScale;
+
+  const deltaX =
+    (event.clientX - move.startX) / shapeScale;
+
+  const deltaY =
+    (event.clientY - move.startY) / shapeScale;
+
+  setShapeBoxes((current) =>
+    current.map((item) =>
+      item.id === shape.id
+        ? {
+            ...item,
+            left: move.initialLeft + deltaX,
+            top: move.initialTop + deltaY,
+            startX: move.initialStartX + deltaX,
+            startY: move.initialStartY + deltaY,
+            endX: move.initialEndX + deltaX,
+            endY: move.initialEndY + deltaY,
+          }
+        : item
+    )
+  );
+};
+
+const endShapeMove = (
+  event: React.PointerEvent<HTMLDivElement>
+) => {
+  event.preventDefault();
+  event.stopPropagation();
+
+  shapeMoveRef.current = null;
+
+  if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+    event.currentTarget.releasePointerCapture(event.pointerId);
+  }
+};
 const startFormFieldMove = (
   event: React.PointerEvent<HTMLDivElement>,
   field: FormFieldBox
@@ -1478,6 +1739,34 @@ const deleteSelectedFormField = () => {
   );
 
   setSelectedFormFieldId(null);
+};
+const deleteSelectedShape = () => {
+  if (!selectedShapeId) return;
+
+  setShapeBoxes((current) =>
+    current.filter(
+      (shape) => shape.id !== selectedShapeId
+    )
+  );
+
+  setSelectedShapeId(null);
+};
+const updateSelectedShape = (
+  updates: Partial<ShapeBox>
+) => {
+  if (!selectedShapeId) return;
+
+  setShapeBoxes((current) =>
+    current.map((shape) =>
+      shape.id === selectedShapeId
+        ? { ...shape, ...updates }
+        : shape
+    )
+  );
+};
+
+const closeShapeProperties = () => {
+  setShowShapeProperties(false);
 };
 const updateSelectedFormField = (
   updates: Partial<FormFieldBox>
@@ -2934,6 +3223,198 @@ for (const field of formFields) {
   dropdown.updateAppearances(formFont);
 }
 }
+for (const shape of shapeBoxes) {
+  const outputPage = outputPdf.getPage(
+    shape.pageNumber - 1
+  );
+
+  const {
+    width: pageWidth,
+    height: pageHeight,
+  } = outputPage.getSize();
+
+  const hexToPdfRgb = (hex: string) => {
+  const cleanHex = hex.replace("#", "");
+  const value = parseInt(cleanHex, 16);
+
+  return rgb(
+    ((value >> 16) & 255) / 255,
+    ((value >> 8) & 255) / 255,
+    (value & 255) / 255
+  );
+};
+
+const shapeColor = hexToPdfRgb(shape.strokeColor);
+const shapeFillColor = hexToPdfRgb(shape.fillColor);
+
+  const convertPoint = (
+    pointX: number,
+    pointY: number
+  ) => {
+    const x = pointX / shape.viewScale;
+    const y = pointY / shape.viewScale;
+
+    if (shape.viewRotation === 90) {
+      return {
+        x: y,
+        y: x,
+      };
+    }
+
+    if (shape.viewRotation === 180) {
+      return {
+        x: pageWidth - x,
+        y,
+      };
+    }
+
+    if (shape.viewRotation === 270) {
+      return {
+        x: pageWidth - y,
+        y: pageHeight - x,
+      };
+    }
+
+    return {
+      x,
+      y: pageHeight - y,
+    };
+  };
+
+  if (
+    shape.shapeType === "rectangle" ||
+    shape.shapeType === "circle"
+  ) {
+    const topLeft = convertPoint(
+      shape.left,
+      shape.top
+    );
+
+    const bottomRight = convertPoint(
+      shape.left + shape.width,
+      shape.top + shape.height
+    );
+
+    const x = Math.min(
+      topLeft.x,
+      bottomRight.x
+    );
+
+    const y = Math.min(
+      topLeft.y,
+      bottomRight.y
+    );
+
+    const width = Math.abs(
+      bottomRight.x - topLeft.x
+    );
+
+    const height = Math.abs(
+      bottomRight.y - topLeft.y
+    );
+
+    if (shape.shapeType === "rectangle") {
+      outputPage.drawRectangle({
+        x,
+  y,
+  width,
+  height,
+  color: shapeFillColor,
+  borderColor: shapeColor,
+  borderWidth: shape.strokeWidth,
+  opacity: shape.opacity,
+  borderOpacity: shape.opacity,
+});
+    }
+
+    if (shape.shapeType === "circle") {
+  outputPage.drawEllipse({
+    x: x + width / 2,
+    y: y + height / 2,
+    xScale: width / 2,
+    yScale: height / 2,
+    color: shapeFillColor,
+    borderColor: shapeColor,
+    borderWidth: shape.strokeWidth,
+    opacity: shape.opacity,
+    borderOpacity: shape.opacity,
+  });
+}
+  }
+
+  if (
+    shape.shapeType === "line" ||
+    shape.shapeType === "arrow"
+  ) {
+    const start = convertPoint(
+      shape.startX,
+      shape.startY
+    );
+
+    const end = convertPoint(
+      shape.endX,
+      shape.endY
+    );
+
+    outputPage.drawLine({
+  start,
+  end,
+  thickness: shape.strokeWidth,
+  color: shapeColor,
+  opacity: shape.opacity,
+});
+
+    if (shape.shapeType === "arrow") {
+      const angle = Math.atan2(
+        end.y - start.y,
+        end.x - start.x
+      );
+
+      const arrowLength =
+        10 / shape.viewScale;
+
+      const angle1 =
+        angle + Math.PI * 0.85;
+
+      const angle2 =
+        angle - Math.PI * 0.85;
+
+      const arrowPoint1 = {
+        x:
+          end.x +
+          arrowLength * Math.cos(angle1),
+        y:
+          end.y +
+          arrowLength * Math.sin(angle1),
+      };
+
+      const arrowPoint2 = {
+        x:
+          end.x +
+          arrowLength * Math.cos(angle2),
+        y:
+          end.y +
+          arrowLength * Math.sin(angle2),
+      };
+
+      outputPage.drawLine({
+  start: end,
+  end: arrowPoint1,
+  thickness: shape.strokeWidth,
+  color: shapeColor,
+  opacity: shape.opacity,
+});
+
+      outputPage.drawLine({
+  start: end,
+  end: arrowPoint2,
+  thickness: shape.strokeWidth,
+  color: shapeColor,
+  opacity: shape.opacity,
+});
+    }
+  }
+}
     /*
      * SAVE NEW PDF
      */
@@ -3356,6 +3837,156 @@ onPointerUp={stopSignatureDrawing}
     </div>
   </div>
 )}
+{showShapeProperties && selectedShape && (
+  <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/30">
+    <div
+      className="w-[400px] rounded-xl bg-white p-5 shadow-2xl"
+      onClick={(event) => event.stopPropagation()}
+    >
+      <div className="mb-5 flex items-center justify-between">
+        <div>
+          <h3 className="text-lg font-semibold text-slate-900">
+            Shape Properties
+          </h3>
+          <p className="text-xs capitalize text-slate-500">
+            {selectedShape.shapeType}
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={closeShapeProperties}
+          className="rounded-md px-2 py-1 text-xl text-slate-500 hover:bg-slate-100"
+        >
+          ×
+        </button>
+      </div>
+
+      <div className="space-y-4">
+        <div>
+          <label className="mb-1 block text-sm font-medium text-slate-700">
+            Line color
+          </label>
+
+          <div className="flex items-center gap-3">
+            <input
+              type="color"
+              value={selectedShape.strokeColor}
+              onChange={(event) =>
+                updateSelectedShape({
+                  strokeColor: event.target.value,
+                })
+              }
+              className="h-10 w-14 cursor-pointer rounded border border-slate-300"
+            />
+
+            <span className="text-sm text-slate-600">
+              {selectedShape.strokeColor}
+            </span>
+          </div>
+        </div>
+
+        {selectedShape.shapeType !== "line" &&
+          selectedShape.shapeType !== "arrow" && (
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700">
+                Fill color
+              </label>
+
+              <div className="flex items-center gap-3">
+                <input
+                  type="color"
+                  value={selectedShape.fillColor}
+                  onChange={(event) =>
+                    updateSelectedShape({
+                      fillColor: event.target.value,
+                    })
+                  }
+                  className="h-10 w-14 cursor-pointer rounded border border-slate-300"
+                />
+
+                <span className="text-sm text-slate-600">
+                  {selectedShape.fillColor}
+                </span>
+              </div>
+            </div>
+          )}
+
+        <div>
+          <label className="mb-1 block text-sm font-medium text-slate-700">
+            Line thickness
+          </label>
+
+          <select
+            value={selectedShape.strokeWidth}
+            onChange={(event) =>
+              updateSelectedShape({
+                strokeWidth: Number(event.target.value),
+              })
+            }
+            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+          >
+            <option value={1}>1 px</option>
+            <option value={2}>2 px</option>
+            <option value={3}>3 px</option>
+            <option value={4}>4 px</option>
+            <option value={5}>5 px</option>
+            <option value={6}>6 px</option>
+            <option value={8}>8 px</option>
+            <option value={10}>10 px</option>
+          </select>
+        </div>
+
+        <div>
+          <div className="mb-1 flex items-center justify-between">
+            <label className="text-sm font-medium text-slate-700">
+              Opacity
+            </label>
+
+            <span className="text-sm text-slate-500">
+              {Math.round(selectedShape.opacity * 100)}%
+            </span>
+          </div>
+
+          <input
+            type="range"
+            min="0.1"
+            max="1"
+            step="0.1"
+            value={selectedShape.opacity}
+            onChange={(event) =>
+              updateSelectedShape({
+                opacity: Number(event.target.value),
+              })
+            }
+            className="w-full"
+          />
+        </div>
+      </div>
+
+      <div className="mt-6 flex items-center justify-between border-t border-slate-200 pt-4">
+        <button
+          type="button"
+          onClick={() => {
+            deleteSelectedShape();
+            setShowShapeProperties(false);
+          }}
+          className="rounded-md bg-red-50 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-100"
+        >
+          Delete shape
+        </button>
+
+        <button
+          type="button"
+          onClick={closeShapeProperties}
+          className="rounded-md bg-blue-600 px-5 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+        >
+          Done
+        </button>
+      </div>
+    </div>
+  </div>
+)}
 {showFormProperties && selectedFormField && (
   <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/30">
     <div
@@ -3771,6 +4402,22 @@ if (tool.label === "Forms") {
   setSelectedAnnotateId(null);
   setSelectedLinkBoxId(null);
 }
+if (tool.label === "Shapes") {
+  setShowShapesMenu((current) => !current);
+
+  setAddTextMode(false);
+  setWhiteoutMode(false);
+  setAnnotateMode(false);
+  setLinkAreaMode(false);
+  setFormFieldMode(null);
+
+  setSelectedTextId(null);
+  setSelectedImageId(null);
+  setSelectedWhiteoutId(null);
+  setSelectedAnnotateId(null);
+  setSelectedLinkBoxId(null);
+  setSelectedFormFieldId(null);
+}
 }}
 
                 disabled={!tool.enabled}
@@ -3780,7 +4427,8 @@ if (tool.label === "Forms") {
 (tool.label === "Whiteout" && whiteoutMode) ||
 (tool.label === "Annotate" && annotateMode) ||
 (tool.label === "Links" && linkAreaMode) ||
-(tool.label === "Forms" && formFieldMode !== null)
+(tool.label === "Forms" && formFieldMode !== null) ||
+(tool.label === "Shapes" && shapeMode !== null)
     ? "bg-blue-600 text-white"
     : "bg-blue-50 text-blue-700"
   : "text-slate-400"
@@ -3843,6 +4491,53 @@ if (tool.label === "Forms") {
       className="w-full rounded-md px-3 py-2 text-left text-sm text-slate-700 hover:bg-blue-50 hover:text-blue-700"
     >
       Drop-down list
+    </button>
+  </div>
+)}
+{tool.label === "Shapes" && showShapesMenu && (
+  <div className="absolute left-0 top-full z-[100] mt-2 w-56 rounded-lg border border-slate-200 bg-white p-2 shadow-xl">
+    <div className="px-3 py-2 text-xs font-semibold uppercase text-slate-400">
+      Add shape
+    </div>
+
+    <button
+      onClick={() => {
+        setShapeMode("rectangle");
+        setShowShapesMenu(false);
+      }}
+      className="w-full rounded-md px-3 py-2 text-left text-sm text-slate-700 hover:bg-blue-50 hover:text-blue-700"
+    >
+      Rectangle
+    </button>
+
+    <button
+      onClick={() => {
+        setShapeMode("circle");
+        setShowShapesMenu(false);
+      }}
+      className="w-full rounded-md px-3 py-2 text-left text-sm text-slate-700 hover:bg-blue-50 hover:text-blue-700"
+    >
+      Circle
+    </button>
+
+    <button
+      onClick={() => {
+        setShapeMode("line");
+        setShowShapesMenu(false);
+      }}
+      className="w-full rounded-md px-3 py-2 text-left text-sm text-slate-700 hover:bg-blue-50 hover:text-blue-700"
+    >
+      Line
+    </button>
+
+    <button
+      onClick={() => {
+        setShapeMode("arrow");
+        setShowShapesMenu(false);
+      }}
+      className="w-full rounded-md px-3 py-2 text-left text-sm text-slate-700 hover:bg-blue-50 hover:text-blue-700"
+    >
+      Arrow
     </button>
   </div>
 )}
@@ -3931,18 +4626,21 @@ if (tool.label === "Forms") {
   startAnnotate(event);
   startLinkArea(event);
   startFormField(event);
+  startShape(event);
 }}
 onPointerMove={(event) => {
   moveWhiteout(event);
   moveAnnotate(event);
   moveLinkArea(event);
   moveFormField(event);
+  moveShape(event);
 }}
 onPointerUp={(event) => {
   endWhiteout(event);
   endAnnotate(event);
   endLinkArea(event);
   endFormField(event);
+  endShape(event);
 }}
   onMouseDown={(event) => {
     if (addTextMode) {
@@ -4152,6 +4850,228 @@ onPointerUp={endFormFieldMove}
       </div>
     );
   })}
+  {shapeBoxes
+  .filter((shape) => shape.pageNumber === pageNumber)
+  .map((shape) => {
+    const shapeScale = scale / shape.viewScale;
+
+    const left = shape.left * shapeScale;
+    const top = shape.top * shapeScale;
+    const width = shape.width * shapeScale;
+    const height = shape.height * shapeScale;
+
+    if (
+      shape.shapeType === "line" ||
+      shape.shapeType === "arrow"
+    ) {
+      const startX = shape.startX * shapeScale;
+      const startY = shape.startY * shapeScale;
+      const endX = shape.endX * shapeScale;
+      const endY = shape.endY * shapeScale;
+
+      const deltaX = endX - startX;
+      const deltaY = endY - startY;
+
+      const length = Math.hypot(deltaX, deltaY);
+      const angle =
+        Math.atan2(deltaY, deltaX) * (180 / Math.PI);
+
+      return (
+        <div
+          key={shape.id}
+          onPointerDown={(event) =>
+  startShapeMove(event, shape)
+}
+onPointerMove={(event) =>
+  moveShapeBox(event, shape)
+}
+onPointerUp={endShapeMove}
+          className="absolute z-30"
+          style={{
+            left: startX,
+            top: startY,
+            width: length,
+            height: 2,
+            transform: `rotate(${angle}deg)`,
+            transformOrigin: "0 50%",
+          }}
+          onClick={(event) => {
+  event.stopPropagation();
+  setSelectedShapeId(shape.id);
+  setShowShapeProperties(true);
+}}
+        >
+          <div
+  className={`w-full ${
+    selectedShapeId === shape.id
+      ? "ring-2 ring-blue-400"
+      : ""
+  }`}
+  style={{
+    height: shape.strokeWidth,
+    backgroundColor: shape.strokeColor,
+    opacity: shape.opacity,
+  }}
+/>
+
+          {shape.shapeType === "arrow" && (
+            <div
+              className="absolute right-[-2px] top-1/2 h-0 w-0 -translate-y-1/2"
+              style={{
+  borderTop: "6px solid transparent",
+  borderBottom: "6px solid transparent",
+  borderLeft: `10px solid ${shape.strokeColor}`,
+  opacity: shape.opacity,
+}}
+            />
+          )}
+          {selectedShapeId === shape.id && (
+  <button
+    type="button"
+    onPointerDown={(event) => {
+      event.preventDefault();
+      event.stopPropagation();
+    }}
+    onClick={(event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      deleteSelectedShape();
+    }}
+    className="absolute -right-2 -top-8 rounded-md bg-red-600 px-2 py-1 text-xs font-semibold text-white shadow-md hover:bg-red-700"
+  >
+    Delete
+  </button>
+)}
+        </div>
+      );
+    }
+
+    return (
+      <div
+        key={shape.id}
+        onPointerDown={(event) =>
+  startShapeMove(event, shape)
+}
+onPointerMove={(event) =>
+  moveShapeBox(event, shape)
+}
+onPointerUp={endShapeMove}
+        onClick={(event) => {
+          event.stopPropagation();
+          setSelectedShapeId(shape.id);
+          setShowShapeProperties(true);
+        }}
+        className={`absolute z-30 ${
+  shape.shapeType === "circle"
+    ? "rounded-full"
+    : ""
+} ${
+  selectedShapeId === shape.id
+    ? "ring-2 ring-blue-400"
+    : ""
+}`}
+        style={{
+  left,
+  top,
+  width,
+  height,
+  borderStyle: "solid",
+  borderColor: shape.strokeColor,
+  borderWidth: shape.strokeWidth,
+  backgroundColor: shape.fillColor,
+  opacity: shape.opacity,
+}}
+    >
+  {selectedShapeId === shape.id && (
+    <button
+      type="button"
+      onPointerDown={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+      }}
+      onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        deleteSelectedShape();
+      }}
+      className="absolute -right-2 -top-8 rounded-md bg-red-600 px-2 py-1 text-xs font-semibold text-white shadow-md hover:bg-red-700"
+    >
+      Delete
+    </button>
+  )}
+</div>
+    );
+  })}
+  {draftShapeBox &&
+  draftShapeBox.pageNumber === pageNumber && (() => {
+    const shapeScale =
+      scale / draftShapeBox.viewScale;
+
+    if (
+      draftShapeBox.shapeType === "line" ||
+      draftShapeBox.shapeType === "arrow"
+    ) {
+      const startX =
+        draftShapeBox.startX * shapeScale;
+      const startY =
+        draftShapeBox.startY * shapeScale;
+      const endX =
+        draftShapeBox.endX * shapeScale;
+      const endY =
+        draftShapeBox.endY * shapeScale;
+
+      const deltaX = endX - startX;
+      const deltaY = endY - startY;
+
+      const length = Math.hypot(deltaX, deltaY);
+      const angle =
+        Math.atan2(deltaY, deltaX) *
+        (180 / Math.PI);
+
+      return (
+        <div
+          className="pointer-events-none absolute z-40"
+          style={{
+            left: startX,
+            top: startY,
+            width: length,
+            height: 2,
+            transform: `rotate(${angle}deg)`,
+            transformOrigin: "0 50%",
+          }}
+        >
+          <div className="h-[2px] w-full bg-blue-500" />
+
+          {draftShapeBox.shapeType === "arrow" && (
+            <div
+              className="absolute right-[-2px] top-1/2 h-0 w-0 -translate-y-1/2"
+              style={{
+                borderTop: "6px solid transparent",
+                borderBottom: "6px solid transparent",
+                borderLeft: "10px solid rgb(59 130 246)",
+              }}
+            />
+          )}
+        </div>
+      );
+    }
+
+    return (
+      <div
+        className={`pointer-events-none absolute z-40 border-2 border-dashed border-blue-500 ${
+          draftShapeBox.shapeType === "circle"
+            ? "rounded-full"
+            : ""
+        }`}
+        style={{
+          left: draftShapeBox.left * shapeScale,
+          top: draftShapeBox.top * shapeScale,
+          width: draftShapeBox.width * shapeScale,
+          height: draftShapeBox.height * shapeScale,
+        }}
+      />
+    );
+  })()}
   {draftFormField &&
   draftFormField.pageNumber === pageNumber && (
     <div
