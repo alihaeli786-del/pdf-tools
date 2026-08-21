@@ -230,6 +230,11 @@ const [pdfSourceBytes, setPdfSourceBytes] =
     width: 0,
     height: 0,
   });
+  const [emptyPageTemplate, setEmptyPageTemplate] = useState<{
+  width: number;
+  height: number;
+  rotation: number;
+} | null>(null);
 
   const [textBoxes, setTextBoxes] = useState<TextBox[]>([]);
   const [imageBoxes, setImageBoxes] = useState<ImageBox[]>([]);
@@ -2514,7 +2519,51 @@ const insertPageAt = async (
   insertIndex: number,
   referencePageNumber: number
 ) => {
-  if (!pdfSourceBytes || !pdfDoc) return;
+  if (pageCount === 0) {
+  if (!emptyPageTemplate) return;
+
+  try {
+    setError("");
+
+    const { PDFDocument, degrees } = await import("pdf-lib");
+    const pdfjsLib = await import("pdfjs-dist");
+
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      "/pdf.worker.min.mjs";
+
+    const newPdf = await PDFDocument.create();
+
+    const newPage = newPdf.addPage([
+      emptyPageTemplate.width,
+      emptyPageTemplate.height,
+    ]);
+
+    newPage.setRotation(
+      degrees(emptyPageTemplate.rotation)
+    );
+
+    const updatedBytes = await newPdf.save();
+    const newSourceBytes = updatedBytes.slice();
+
+    const loadedPdf = await pdfjsLib.getDocument({
+      data: newSourceBytes.slice(),
+    }).promise;
+
+    setPdfSourceBytes(newSourceBytes);
+    setPdfDoc(loadedPdf);
+    setPageCount(1);
+    setPageNumber(1);
+    setRotation(0);
+
+    return;
+  } catch (err) {
+    console.error(err);
+    setError("Unable to create a new page.");
+    return;
+  }
+}
+
+if (!pdfSourceBytes || !pdfDoc) return;
 
   try {
     setError("");
@@ -2610,6 +2659,147 @@ const insertPageAt = async (
   } catch (err) {
     console.error(err);
     setError("Unable to insert a new page.");
+  }
+};
+const deletePageAt = async (
+  pageToDelete: number
+) => {
+  if (!pdfSourceBytes || !pdfDoc) return;
+
+  
+  try {
+    setError("");
+
+    const { PDFDocument } = await import("pdf-lib");
+    const pdfjsLib = await import("pdfjs-dist");
+
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      "/pdf.worker.min.mjs";
+
+    const workingPdf = await PDFDocument.load(
+      pdfSourceBytes.slice()
+    );
+if (workingPdf.getPageCount() === 1) {
+  const onlyPage = workingPdf.getPage(0);
+
+  const { width, height } = onlyPage.getSize();
+
+  setEmptyPageTemplate({
+    width,
+    height,
+    rotation: onlyPage.getRotation().angle,
+  });
+
+  setPdfSourceBytes(null);
+  setPdfDoc(null);
+  setPageCount(0);
+  setPageNumber(0);
+  setRotation(0);
+
+  setTextBoxes([]);
+  setImageBoxes([]);
+  setWhiteoutBoxes([]);
+  setAnnotateBoxes([]);
+  setLinkBoxes([]);
+  setFormFields([]);
+  setShapeBoxes([]);
+
+  setSelectedTextId(null);
+  setSelectedImageId(null);
+  setSelectedWhiteoutId(null);
+  setSelectedAnnotateId(null);
+  setSelectedLinkBoxId(null);
+  setSelectedFormFieldId(null);
+  setSelectedShapeId(null);
+
+  setShowLinkProperties(false);
+  setShowFormProperties(false);
+  setShowShapeProperties(false);
+
+  return;
+}
+    workingPdf.removePage(pageToDelete - 1);
+
+    const updatedBytes = await workingPdf.save();
+    const newSourceBytes = updatedBytes.slice();
+
+    const loadedPdf = await pdfjsLib.getDocument({
+      data: newSourceBytes.slice(),
+    }).promise;
+
+    const removeAndShift = <
+      T extends { pageNumber: number },
+    >(
+      items: T[]
+    ) =>
+      items
+        .filter(
+          (item) =>
+            item.pageNumber !== pageToDelete
+        )
+        .map((item) =>
+          item.pageNumber > pageToDelete
+            ? {
+                ...item,
+                pageNumber: item.pageNumber - 1,
+              }
+            : item
+        );
+
+    setTextBoxes((current) =>
+      removeAndShift(current)
+    );
+
+    setImageBoxes((current) =>
+      removeAndShift(current)
+    );
+
+    setWhiteoutBoxes((current) =>
+      removeAndShift(current)
+    );
+
+    setAnnotateBoxes((current) =>
+      removeAndShift(current)
+    );
+
+    setLinkBoxes((current) =>
+      removeAndShift(current)
+    );
+
+    setFormFields((current) =>
+      removeAndShift(current)
+    );
+
+    setShapeBoxes((current) =>
+      removeAndShift(current)
+    );
+
+    setPdfSourceBytes(newSourceBytes);
+    setPdfDoc(loadedPdf);
+    setPageCount(loadedPdf.numPages);
+
+    const nextPageNumber = Math.min(
+      pageToDelete,
+      loadedPdf.numPages
+    );
+
+    setPageNumber(nextPageNumber);
+    setRotation(0);
+
+    setSelectedTextId(null);
+    setSelectedImageId(null);
+    setSelectedWhiteoutId(null);
+    setSelectedAnnotateId(null);
+    setSelectedLinkBoxId(null);
+    setSelectedFormFieldId(null);
+    setSelectedShapeId(null);
+
+    setShowLinkProperties(false);
+    setShowFormProperties(false);
+    setShowShapeProperties(false);
+  } catch (err) {
+    console.error(err);
+    setError("Unable to delete this page.");
   }
 };
 const applyChanges = async () => {
@@ -3673,7 +3863,7 @@ const shapeFillColor = hexToPdfRgb(shape.fillColor);
     setPageNumber((current) => Math.min(pageCount, current + 1));
   };
 
-  if (!file || !pdfDoc) {
+  if (!file) {
     return (
       <main className="min-h-screen bg-[#f7f8fc]">
         <header className="border-b border-slate-200 bg-white">
@@ -4792,15 +4982,25 @@ if (tool.label === "Shapes") {
             Rendering page...
           </div>
         )}
-{pdfDoc && (
-  <button
-    type="button"
-    onClick={() => insertPageAt(0, 1)}
-    className="flex items-center gap-1 rounded-md border border-blue-400 bg-white px-2.5 py-1 text-xs font-medium text-blue-600 hover:bg-blue-50"
-  >
-    <Plus size={13} />
-    Insert page here
-  </button>
+{pdfDoc && pageNumber > 0 && (
+  <div className="flex items-center gap-2">
+    <button
+      type="button"
+      onClick={() => insertPageAt(0, 1)}
+      className="flex items-center gap-1 rounded-md border border-blue-400 bg-white px-2.5 py-1 text-xs font-medium text-blue-600 hover:bg-blue-50"
+    >
+      <Plus size={13} />
+      Insert page here
+    </button>
+
+    <button
+      type="button"
+      onClick={() => deletePageAt(pageNumber)}
+      className="rounded-md border border-red-300 bg-white px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-50"
+    >
+      Delete page
+    </button>
+  </div>
 )}
 
 {pdfDoc &&
@@ -4824,24 +5024,39 @@ if (tool.label === "Shapes") {
             }}
           />
 
-          <button
-            type="button"
-            onClick={() =>
-              insertPageAt(previewPage, previewPage)
-            }
-            className="flex items-center gap-2 rounded-md border border-blue-400 bg-white px-4 py-2 text-sm font-medium text-blue-600 hover:bg-blue-50"
-          >
-            <Plus size={16} />
-            Insert page here
-          </button>
-        </div>
+  <div className="flex items-center gap-2">
+  <button
+    type="button"
+    onClick={() =>
+      insertPageAt(previewPage, previewPage)
+    }
+    className="flex items-center gap-2 rounded-md border border-blue-400 bg-white px-4 py-2 text-sm font-medium text-blue-600 hover:bg-blue-50"
+  >
+    <Plus size={16} />
+    Insert page here
+  </button>
+
+  <button
+    type="button"
+    onClick={() => deletePageAt(previewPage)}
+    className="rounded-md border border-red-300 bg-white px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50"
+  >
+    Delete page
+  </button>
+</div>
+</div>
       );
     }
   )}
+  
         <div
   className={`relative bg-white shadow-xl ${
-    addTextMode ? "cursor-text" : ""
-  }`}
+  pageCount === 0
+    ? "hidden"
+    : addTextMode
+      ? "cursor-text"
+      : ""
+}`}
   style={{
     width: pageSize.width,
     height: pageSize.height,
