@@ -141,11 +141,80 @@ const fontOptions = [
   "Calibri",
   "Cambria",
 ];
+function PdfPagePreview({
+  pdfDoc,
+  pageNumber,
+  scale,
+  onActivate,
+}: {
+  pdfDoc: PDFDocumentProxy;
+  pageNumber: number;
+  scale: number;
+  onActivate: () => void;
+}) {
+  const previewCanvasRef =
+    useRef<HTMLCanvasElement | null>(null);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const renderPreview = async () => {
+      const page = await pdfDoc.getPage(pageNumber);
+
+      const viewport = page.getViewport({
+        scale,
+      });
+
+      const canvas = previewCanvasRef.current;
+      if (!canvas || cancelled) return;
+
+      const context = canvas.getContext("2d");
+      if (!context) return;
+
+      canvas.width = Math.floor(viewport.width);
+      canvas.height = Math.floor(viewport.height);
+
+      const renderTask = page.render({
+  canvas,
+  canvasContext: context,
+  viewport,
+});
+
+      try {
+        await renderTask.promise;
+      } catch (err) {
+        if (!cancelled) {
+          console.error(err);
+        }
+      }
+    };
+
+    renderPreview();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [pdfDoc, pageNumber, scale]);
+
+  return (
+    <button
+      type="button"
+      onClick={onActivate}
+      className="block border-0 bg-transparent p-0"
+      title={`Edit page ${pageNumber}`}
+    >
+      <canvas
+        ref={previewCanvasRef}
+        className="block bg-white shadow-xl"
+      />
+    </button>
+  );
+}
 export default function EditPdfPage() {
   const [file, setFile] = useState<File | null>(null);
   const [pdfDoc, setPdfDoc] = useState<PDFDocumentProxy | null>(null);
-
+const [pdfSourceBytes, setPdfSourceBytes] =
+  useState<Uint8Array | null>(null);
   const [pageNumber, setPageNumber] = useState(1);
   const [pageCount, setPageCount] = useState(0);
 
@@ -2170,10 +2239,14 @@ const captureSignatureCamera = () => {
       pdfjsLib.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
 
       const arrayBuffer = await selectedFile.arrayBuffer();
-      const loadedPdf = await pdfjsLib.getDocument({
 
-        data: new Uint8Array(arrayBuffer),
-      }).promise;
+const sourceBytes = new Uint8Array(arrayBuffer);
+
+setPdfSourceBytes(sourceBytes.slice());
+
+const loadedPdf = await pdfjsLib.getDocument({
+  data: sourceBytes,
+}).promise;
 
       setFile(selectedFile);
       setPdfDoc(loadedPdf);
@@ -2437,6 +2510,108 @@ const viewportPointToPdfPoint = async (
     y: pdfY,
   };
 };
+const insertPageAt = async (
+  insertIndex: number,
+  referencePageNumber: number
+) => {
+  if (!pdfSourceBytes || !pdfDoc) return;
+
+  try {
+    setError("");
+
+    const { PDFDocument } = await import("pdf-lib");
+    const pdfjsLib = await import("pdfjs-dist");
+
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      "/pdf.worker.min.mjs";
+
+    const workingPdf = await PDFDocument.load(
+      pdfSourceBytes.slice()
+    );
+
+    const referencePage = workingPdf.getPage(
+      referencePageNumber - 1
+    );
+
+    const { width, height } = referencePage.getSize();
+
+    const newPage = workingPdf.insertPage(
+      insertIndex,
+      [width, height]
+    );
+
+    newPage.setRotation(referencePage.getRotation());
+
+    const updatedBytes = await workingPdf.save();
+    const newSourceBytes = updatedBytes.slice();
+
+    const loadedPdf = await pdfjsLib.getDocument({
+      data: newSourceBytes.slice(),
+    }).promise;
+
+    const shiftPage = <
+      T extends { pageNumber: number },
+    >(
+      item: T
+    ): T =>
+      item.pageNumber > insertIndex
+        ? {
+            ...item,
+            pageNumber: item.pageNumber + 1,
+          }
+        : item;
+
+    setTextBoxes((current) =>
+      current.map(shiftPage)
+    );
+
+    setImageBoxes((current) =>
+      current.map(shiftPage)
+    );
+
+    setWhiteoutBoxes((current) =>
+      current.map(shiftPage)
+    );
+
+    setAnnotateBoxes((current) =>
+      current.map(shiftPage)
+    );
+
+    setLinkBoxes((current) =>
+      current.map(shiftPage)
+    );
+
+    setFormFields((current) =>
+      current.map(shiftPage)
+    );
+
+    setShapeBoxes((current) =>
+      current.map(shiftPage)
+    );
+
+    setPdfSourceBytes(newSourceBytes);
+    setPdfDoc(loadedPdf);
+    setPageCount(loadedPdf.numPages);
+
+    setPageNumber(insertIndex + 1);
+    setRotation(0);
+
+    setSelectedTextId(null);
+    setSelectedImageId(null);
+    setSelectedWhiteoutId(null);
+    setSelectedAnnotateId(null);
+    setSelectedLinkBoxId(null);
+    setSelectedFormFieldId(null);
+    setSelectedShapeId(null);
+
+    setShowLinkProperties(false);
+    setShowFormProperties(false);
+    setShowShapeProperties(false);
+  } catch (err) {
+    console.error(err);
+    setError("Unable to insert a new page.");
+  }
+};
 const applyChanges = async () => {
   if (!file || exporting) return;
 
@@ -2455,7 +2630,9 @@ const applyChanges = async () => {
   PDFString,
 } = await import("pdf-lib");
 
-    const originalBytes = await file.arrayBuffer();
+    const originalBytes = pdfSourceBytes
+  ? pdfSourceBytes.slice()
+  : new Uint8Array(await file.arrayBuffer());
 
     const outputPdf = await PDFDocument.load(originalBytes);
     const fontkitModule = await import("@pdf-lib/fontkit");
@@ -4599,20 +4776,68 @@ if (tool.label === "Shapes") {
             {Math.round(scale * 100)}%
           </span>
 
-          <button className="ml-3 flex items-center gap-2 rounded border border-blue-400 bg-white px-3 py-2 text-blue-600">
+          <button
+  onClick={() => insertPageAt(pageNumber, pageNumber)}
+  className="ml-3 flex items-center gap-2 rounded border border-blue-400 bg-white px-3 py-2 text-blue-600"
+>
             <Plus size={16} />
             Insert page here
           </button>
         </div>
       </div>
 
-      <section className="relative flex flex-1 justify-center overflow-auto p-8">
+      <section className="relative flex flex-1 flex-col items-center gap-2 overflow-auto p-8">
         {rendering && (
           <div className="fixed bottom-6 right-6 z-50 rounded bg-slate-900 px-4 py-2 text-sm text-white">
             Rendering page...
           </div>
         )}
+{pdfDoc && (
+  <button
+    type="button"
+    onClick={() => insertPageAt(0, 1)}
+    className="flex items-center gap-1 rounded-md border border-blue-400 bg-white px-2.5 py-1 text-xs font-medium text-blue-600 hover:bg-blue-50"
+  >
+    <Plus size={13} />
+    Insert page here
+  </button>
+)}
 
+{pdfDoc &&
+  Array.from(
+    { length: Math.max(0, pageNumber - 1) },
+    (_, index) => {
+      const previewPage = index + 1;
+
+      return (
+        <div
+          key={`before-page-${previewPage}`}
+          className="flex flex-col items-center gap-6"
+        >
+          <PdfPagePreview
+            pdfDoc={pdfDoc}
+            pageNumber={previewPage}
+            scale={scale}
+            onActivate={() => {
+              setPageNumber(previewPage);
+              setRotation(0);
+            }}
+          />
+
+          <button
+            type="button"
+            onClick={() =>
+              insertPageAt(previewPage, previewPage)
+            }
+            className="flex items-center gap-2 rounded-md border border-blue-400 bg-white px-4 py-2 text-sm font-medium text-blue-600 hover:bg-blue-50"
+          >
+            <Plus size={16} />
+            Insert page here
+          </button>
+        </div>
+      );
+    }
+  )}
         <div
   className={`relative bg-white shadow-xl ${
     addTextMode ? "cursor-text" : ""
@@ -5724,6 +5949,58 @@ const y = selectedBox.top;
 })}
           </div>
         </div>
+        {pdfDoc && (
+  <button
+    type="button"
+    onClick={() =>
+      insertPageAt(pageNumber, pageNumber)
+    }
+    className="flex items-center gap-2 rounded-md border border-blue-400 bg-white px-4 py-2 text-sm font-medium text-blue-600 hover:bg-blue-50"
+  >
+    <Plus size={16} />
+    Insert page here
+  </button>
+)}
+
+{pdfDoc &&
+  Array.from(
+    { length: Math.max(0, pageCount - pageNumber) },
+    (_, index) => {
+      const previewPage =
+        pageNumber + index + 1;
+
+      return (
+        <div
+          key={`after-page-${previewPage}`}
+          className="flex flex-col items-center gap-6"
+        >
+          <PdfPagePreview
+            pdfDoc={pdfDoc}
+            pageNumber={previewPage}
+            scale={scale}
+            onActivate={() => {
+              setPageNumber(previewPage);
+              setRotation(0);
+            }}
+          />
+
+          <button
+            type="button"
+            onClick={() =>
+              insertPageAt(
+                previewPage,
+                previewPage
+              )
+            }
+            className="flex items-center gap-2 rounded-md border border-blue-400 bg-white px-4 py-2 text-sm font-medium text-blue-600 hover:bg-blue-50"
+          >
+            <Plus size={16} />
+            Insert page here
+          </button>
+        </div>
+      );
+    }
+  )}
       </section>
     </main>
   );
