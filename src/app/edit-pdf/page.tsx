@@ -211,6 +211,55 @@ function PdfPagePreview({
   );
 }
 export default function EditPdfPage() {
+  const measureTextBox = (
+  text: string,
+  fontSize: number,
+  fontFamily: string,
+  bold: boolean,
+  italic: boolean
+) => {
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d");
+
+  const safeText = text || " ";
+
+  if (!context) {
+    return {
+  width: Math.max(
+    8,
+    safeText.length * fontSize * 0.58 + 3
+  ),
+  height: Math.max(
+    fontSize + 3,
+    fontSize * 1.08
+  ),
+};
+  }
+
+  context.font = `${italic ? "italic " : ""}${
+    bold ? "700 " : "400 "
+  }${fontSize}px ${fontFamily}`;
+
+  const lines = safeText.split("\n");
+
+  const widestLine = Math.max(
+    ...lines.map((line) =>
+      context.measureText(line || " ").width
+    )
+  );
+
+  return {
+  width: Math.max(
+    8,
+    Math.ceil(widestLine) + 3
+  ),
+
+  height: Math.max(
+    fontSize + 3,
+    Math.ceil(lines.length * fontSize * 1.08) + 2
+  ),
+};
+};
   const [file, setFile] = useState<File | null>(null);
   const [pdfDoc, setPdfDoc] = useState<PDFDocumentProxy | null>(null);
 const [pdfSourceBytes, setPdfSourceBytes] =
@@ -255,6 +304,10 @@ const [selectedLinkBoxId, setSelectedLinkBoxId] =
   const [editBoxes, setEditBoxes] = useState<Record<string, TextBox>>({});
   const [moveMode, setMoveMode] = useState(false);
   const [isTextDragging, setIsTextDragging] = useState(false);
+  const [textSnapGuides, setTextSnapGuides] = useState<{
+  x?: number;
+  y?: number;
+}>({});
   const [imageMoveMode, setImageMoveMode] = useState(false);
   const [showSignDialog, setShowSignDialog] = useState(false);
   const [signDialogMode, setSignDialogMode] =
@@ -354,6 +407,15 @@ const annotateMoveRef = useRef<{
     initialX: number;
     initialY: number;
   } | null>(null);
+  const textClickRef = useRef<{
+  id: string;
+  time: number;
+} | null>(null);
+
+const pendingCaretRef = useRef<{
+  id: string;
+  clientX: number;
+} | null>(null);
 const imageDragRef = useRef<{
   id: string;
   startX: number;
@@ -1991,14 +2053,21 @@ const groupTextIntoLines = (boxes: TextBox[]): TextBox[] => {
       Math.max(previous.fontSize, box.fontSize) * 0.2;
 
     const sameFont =
-      previous.fontFamily === box.fontFamily;
+  previous.fontFamily === box.fontFamily;
+
+const sameStyle =
+  /Bold/i.test(previous.fontName) ===
+    /Bold/i.test(box.fontName) &&
+  /(Italic|Oblique)/i.test(previous.fontName) ===
+    /(Italic|Oblique)/i.test(box.fontName);
 
     if (
-      sameLine &&
-      closeEnough &&
-      similarSize &&
-      sameFont
-    ) {
+  sameLine &&
+  closeEnough &&
+  similarSize &&
+  sameFont &&
+  sameStyle
+) {
       const needsSpace =
         gap >
         Math.max(
@@ -2033,12 +2102,13 @@ const groupTextIntoLines = (boxes: TextBox[]): TextBox[] => {
   return grouped;
 };
   const sampleBackgroundColor = (
-    context: CanvasRenderingContext2D,
-    left: number,
-    top: number,
-    width: number,
-    height: number
-  ) => {
+  context: CanvasRenderingContext2D,
+  left: number,
+  top: number,
+  width: number,
+  height: number,
+  outputScale = 1
+) => {
     const points = [
       [left - 3, top - 3],
       [left + width + 3, top - 3],
@@ -2050,14 +2120,20 @@ const groupTextIntoLines = (boxes: TextBox[]): TextBox[] => {
 
     for (const point of points) {
       const x = Math.max(
-        0,
-        Math.min(context.canvas.width - 1, Math.round(point[0]))
-      );
+  0,
+  Math.min(
+    context.canvas.width - 1,
+    Math.round(point[0] * outputScale)
+  )
+);
 
-      const y = Math.max(
-        0,
-        Math.min(context.canvas.height - 1, Math.round(point[1]))
-      );
+const y = Math.max(
+  0,
+  Math.min(
+    context.canvas.height - 1,
+    Math.round(point[1] * outputScale)
+  )
+);
 
       try {
         const data = context.getImageData(x, y, 1, 1).data;
@@ -2311,27 +2387,48 @@ const loadedPdf = await pdfjsLib.getDocument({
 
         if (!context) return;
 
-        const width = Math.floor(viewport.width);
-        const height = Math.floor(viewport.height);
+        const width = viewport.width;
+const height = viewport.height;
 
-        canvas.width = width;
-        canvas.height = height;
+const outputScale = Math.min(
+  Math.max(window.devicePixelRatio || 1, 2),
+  3
+);
 
-        canvas.style.width = `${width}px`;
-        canvas.style.height = `${height}px`;
+canvas.width = Math.floor(width * outputScale);
+canvas.height = Math.floor(height * outputScale);
 
-        setPageSize({
-          width,
-          height,
-        });
+canvas.style.width = `${width}px`;
+canvas.style.height = `${height}px`;
 
-        context.clearRect(0, 0, width, height);
+setPageSize({
+  width,
+  height,
+});
 
-        renderTask = page.render({
-          canvasContext: context,
-          viewport,
-          canvas,
-        });
+context.setTransform(1, 0, 0, 1, 0, 0);
+
+context.clearRect(
+  0,
+  0,
+  canvas.width,
+  canvas.height
+);
+
+renderTask = page.render({
+  canvasContext: context,
+  viewport,
+  canvas,
+
+  transform: [
+    outputScale,
+    0,
+    0,
+    outputScale,
+    0,
+    0,
+  ],
+});
 
         await renderTask.promise;
 
@@ -2416,12 +2513,13 @@ text: item.str,
 fontName: rawFontName,
 
                 backgroundColor: sampleBackgroundColor(
-                  context,
-                  left,
-                  top,
-                  textWidth,
-                  fontHeight
-                ),
+  context,
+  left,
+  top,
+  textWidth,
+  fontHeight,
+  outputScale
+),
               },
             ];
           }
@@ -5735,8 +5833,8 @@ onPointerUp={handleImageResizeEnd}
           {selectedBox && !isTextDragging &&  (() => {
             const edit = getTextEdit(selectedBox);
 
-            const x = selectedBox.left;
-const y = selectedBox.top;
+            const x = selectedBox.left + (edit.offsetX ?? 0);
+const y = selectedBox.top + (edit.offsetY ?? 0);
 
             return (
               <div
@@ -5794,27 +5892,41 @@ const y = selectedBox.top;
                 />
 
                 <select
-                  value={edit.fontFamily}
-                  onChange={(event) =>
-                    updateEdit(selectedBox, {
-                      fontFamily: event.target.value,
-                    })
-                  }
-                  className="w-48 rounded border px-2 py-1.5 text-sm"
-                  title="Font family"
-                >
-                  <option value={selectedBox.fontFamily}>
-  Original ({selectedBox.fontFamily})
-</option>
+  value={edit.fontFamily}
+  onChange={(event) =>
+    updateEdit(selectedBox, {
+      fontFamily: event.target.value,
+    })
+  }
+  className="w-48 rounded border px-2 py-1.5 text-sm"
+  title="Font family"
+  style={{
+    fontFamily: edit.fontFamily,
+  }}
+>
+  <option
+    value={selectedBox.fontFamily}
+    style={{
+      fontFamily: selectedBox.fontFamily,
+    }}
+  >
+    Original ({selectedBox.fontFamily})
+  </option>
 
-{fontOptions
-  .filter((font) => font !== selectedBox.fontFamily)
-  .map((font) => (
-    <option key={font} value={font}>
-      {font}
-    </option>
-  ))}
-                </select>
+  {fontOptions
+    .filter((font) => font !== selectedBox.fontFamily)
+    .map((font) => (
+      <option
+        key={font}
+        value={font}
+        style={{
+          fontFamily: font,
+        }}
+      >
+        {font}
+      </option>
+    ))}
+</select>
 
                 <input
                   type="color"
@@ -5866,12 +5978,40 @@ const y = selectedBox.top;
               </div>
             );
           })()}
+{isTextDragging && textSnapGuides.x !== undefined && (
+  <div
+    className="pointer-events-none absolute z-50 bg-cyan-500"
+    style={{
+      left: textSnapGuides.x,
+      top: 0,
+      width: 1,
+      height: pageSize.height,
+    }}
+  />
+)}
 
+{isTextDragging && textSnapGuides.y !== undefined && (
+  <div
+    className="pointer-events-none absolute z-50 bg-cyan-500"
+    style={{
+      left: 0,
+      top: textSnapGuides.y,
+      width: pageSize.width,
+      height: 1,
+    }}
+  />
+)}
           <div className="pointer-events-none absolute inset-0 z-10">
             {textBoxes.map((box) => {
   const edit = textEdits[box.id];
   const activeEdit = edit || createDefaultEdit(box);
-
+const measuredTextBox = measureTextBox(
+  activeEdit.text,
+  activeEdit.fontSize,
+  activeEdit.fontFamily,
+  activeEdit.bold,
+  activeEdit.italic
+);
   const left = box.left + activeEdit.offsetX;
   const top = box.top + activeEdit.offsetY;
 
@@ -5945,56 +6085,285 @@ const y = selectedBox.top;
       {isSelected && (
         <textarea
           autoFocus
+          onMouseDown={(event) => {
+  event.stopPropagation();
+}}
+          ref={(element) => {
+  if (!element) return;
+
+  const pendingCaret = pendingCaretRef.current;
+
+  if (
+    pendingCaret &&
+    pendingCaret.id === box.id
+  ) {
+    requestAnimationFrame(() => {
+      element.focus();
+
+      const rect =
+        element.getBoundingClientRect();
+
+      const clickX =
+        pendingCaret.clientX - rect.left;
+
+      const canvas =
+        document.createElement("canvas");
+
+      const context =
+        canvas.getContext("2d");
+
+      if (context) {
+        context.font = `${
+          activeEdit.italic ? "italic " : ""
+        }${
+          activeEdit.bold ? "700 " : "400 "
+        }${activeEdit.fontSize}px ${
+          activeEdit.fontFamily
+        }`;
+
+        let caretPosition = 0;
+
+        for (
+          let i = 0;
+          i <= activeEdit.text.length;
+          i++
+        ) {
+          const before =
+            activeEdit.text.slice(0, i);
+
+          const width =
+            context.measureText(before).width;
+
+          if (width >= clickX) {
+            const previousWidth =
+              i > 0
+                ? context.measureText(
+                    activeEdit.text.slice(0, i - 1)
+                  ).width
+                : 0;
+
+            caretPosition =
+              clickX - previousWidth <
+              width - clickX
+                ? Math.max(0, i - 1)
+                : i;
+
+            break;
+          }
+
+          caretPosition = i;
+        }
+
+        element.setSelectionRange(
+          caretPosition,
+          caretPosition
+        );
+      }
+
+      pendingCaretRef.current = null;
+    });
+  }
+}}
           value={activeEdit.text}
           spellCheck={false}
 
-          onMouseDown={(event) => {
-            event.stopPropagation();
+          onPointerDown={(event) => {
+  event.stopPropagation();
 
-            if (!moveMode) return;
+  if (!moveMode) return;
 
-            event.preventDefault();
+  event.preventDefault();
 
-            dragRef.current = {
-              id: box.id,
-              startX: event.clientX,
-              startY: event.clientY,
-              initialX: activeEdit.offsetX,
-              initialY: activeEdit.offsetY,
-            };
-            setIsTextDragging(true);
-          }}
+  event.currentTarget.setPointerCapture(event.pointerId);
+
+  dragRef.current = {
+    id: box.id,
+    startX: event.clientX,
+    startY: event.clientY,
+    initialX: activeEdit.offsetX,
+    initialY: activeEdit.offsetY,
+  };
+
+  setIsTextDragging(true);
+}}
 
           onPointerMove={(event) => {
-            const drag = dragRef.current;
+  const drag = dragRef.current;
 
-            if (
-              !moveMode ||
-              !drag ||
-              drag.id !== box.id
-            ) {
-              return;
-            }
+  if (
+    !moveMode ||
+    !drag ||
+    drag.id !== box.id
+  ) {
+    return;
+  }
 
-            updateEdit(box, {
-              offsetX:
-                drag.initialX +
-                event.clientX -
-                drag.startX,
+  const rawOffsetX =
+    drag.initialX +
+    event.clientX -
+    drag.startX;
 
-              offsetY:
-                drag.initialY +
-                event.clientY -
-                drag.startY,
-            });
-          }}
+  const rawOffsetY =
+    drag.initialY +
+    event.clientY -
+    drag.startY;
 
-          onPointerUp={() => {
-            dragRef.current = null;
-            setIsTextDragging(false);
-          }}
+  const rawLeft = box.left + rawOffsetX;
+  const rawTop = box.top + rawOffsetY;
+
+  const snapThreshold = 8;
+  let snappedLeft = rawLeft;
+  let snappedTop = rawTop;
+
+  let guideX: number | undefined;
+let guideY: number | undefined;
+
+let bestX:
+  | {
+      distance: number;
+      delta: number;
+      guide: number;
+    }
+  | undefined;
+
+let bestY:
+  | {
+      distance: number;
+      delta: number;
+      guide: number;
+    }
+  | undefined;
+
+for (const otherBox of textBoxes) {
+  if (otherBox.id === box.id) continue;
+  if (otherBox.pageNumber !== box.pageNumber) continue;
+
+  const otherEdit = getTextEdit(otherBox);
+
+  if (otherEdit.deleted) continue;
+
+  const otherMeasured = measureTextBox(
+    otherEdit.text,
+    otherEdit.fontSize,
+    otherEdit.fontFamily,
+    otherEdit.bold,
+    otherEdit.italic
+  );
+
+  const otherLeft =
+    otherBox.left + otherEdit.offsetX;
+
+  const otherTop =
+    otherBox.top + otherEdit.offsetY;
+
+  const currentWidth = measuredTextBox.width;
+  const currentHeight = measuredTextBox.height;
+
+  const otherWidth = otherMeasured.width;
+  const otherHeight = otherMeasured.height;
+
+  const currentXPoints = [
+    rawLeft,
+    rawLeft + currentWidth / 2,
+    rawLeft + currentWidth,
+  ];
+
+  const otherXPoints = [
+    otherLeft,
+    otherLeft + otherWidth / 2,
+    otherLeft + otherWidth,
+  ];
+
+  for (const currentX of currentXPoints) {
+    for (const targetX of otherXPoints) {
+      const distance =
+        Math.abs(currentX - targetX);
+
+      if (
+        distance <= snapThreshold &&
+        (!bestX || distance < bestX.distance)
+      ) {
+        bestX = {
+          distance,
+          delta: targetX - currentX,
+          guide: targetX,
+        };
+      }
+    }
+  }
+
+  const currentYPoints = [
+    rawTop,
+    rawTop + currentHeight,
+  ];
+
+  const otherYPoints = [
+    otherTop,
+    otherTop + otherHeight,
+  ];
+
+  for (const currentY of currentYPoints) {
+    for (const targetY of otherYPoints) {
+      const distance =
+        Math.abs(currentY - targetY);
+
+      if (
+        distance <= snapThreshold &&
+        (!bestY || distance < bestY.distance)
+      ) {
+        bestY = {
+          distance,
+          delta: targetY - currentY,
+          guide: targetY,
+        };
+      }
+    }
+  }
+}
+
+if (bestX) {
+  snappedLeft = rawLeft + bestX.delta;
+  guideX = bestX.guide;
+}
+
+if (bestY) {
+  snappedTop = rawTop + bestY.delta;
+  guideY = bestY.guide;
+}
+  setTextSnapGuides({
+    x: guideX,
+    y: guideY,
+  });
+
+  updateEdit(box, {
+    offsetX: snappedLeft - box.left,
+    offsetY: snappedTop - box.top,
+  });
+}}
+
+          onPointerUp={(event) => {
+  dragRef.current = null;
+  setIsTextDragging(false);
+
+  if (
+    event.currentTarget.hasPointerCapture(
+      event.pointerId
+    )
+  ) {
+    event.currentTarget.releasePointerCapture(
+      event.pointerId
+    );
+  }
+}}
 
           onClick={(event) => event.stopPropagation()}
+          onDoubleClick={(event) => {
+  event.preventDefault();
+  event.stopPropagation();
+
+  event.currentTarget.focus();
+  event.currentTarget.select();
+}}
 
           onChange={(event) =>
             updateEdit(box, {
@@ -6003,25 +6372,20 @@ const y = selectedBox.top;
             })
           }
 
-          className="pointer-events-auto absolute z-40 resize-none overflow-hidden border border-blue-500 bg-transparent p-0 outline-none focus:border-transparent"
+          className={`pointer-events-auto absolute z-40 resize-none overflow-hidden border bg-transparent p-0 outline-none ${
+  moveMode
+    ? "border-dashed border-blue-500"
+    : "border-transparent"
+}`}
 
           style={{
             left,
             top,
 
-            width: Math.max(
-              box.width + 18,
-              activeEdit.text.length *
-                activeEdit.fontSize *
-                0.62
-            ),
-
-            minWidth: 20,
-
-            minHeight: Math.max(
-              box.height * 1.2,
-              activeEdit.fontSize * 1.15
-            ),
+            width: measuredTextBox.width,
+height: measuredTextBox.height,
+minWidth: measuredTextBox.width,
+minHeight: measuredTextBox.height,
 
             fontFamily: activeEdit.fontFamily,
 
@@ -6047,6 +6411,8 @@ const y = selectedBox.top;
 
             cursor:
               moveMode ? "move" : "text",
+              touchAction: moveMode ? "none" : "auto",
+userSelect: moveMode ? "none" : "text",
 
             caretColor: "#2563eb",
           }}
@@ -6070,23 +6436,16 @@ const y = selectedBox.top;
               startEditing(box);
             }}
 
-            className="pointer-events-auto absolute z-30 cursor-text border-0 bg-transparent p-0 text-left outline-none"
+            className="pointer-events-auto absolute z-30 cursor-text border border-dashed border-transparent bg-transparent p-0 text-left outline-none hover:border-blue-500"
 
             style={{
               left,
               top,
 
-              width: Math.max(
-                box.width + 12,
-                activeEdit.text.length *
-                  activeEdit.fontSize *
-                  0.62
-              ),
+              width: measuredTextBox.width,
 
-              minHeight: Math.max(
-                box.height * 1.15,
-                activeEdit.fontSize
-              ),
+              height: measuredTextBox.height,
+minHeight: measuredTextBox.height,
 
               backgroundColor: "transparent",
 
@@ -6128,30 +6487,40 @@ const y = selectedBox.top;
 
           aria-label={`Edit ${box.text}`}
 
-          onMouseDown={(event) =>
-            event.stopPropagation()
-          }
+          onPointerDown={(event) => {
+  event.stopPropagation();
 
-          onClick={(event) => {
-            event.stopPropagation();
-            startEditing(box);
-          }}
+  pendingCaretRef.current = {
+    id: box.id,
+    clientX: event.clientX,
+  };
 
-          className="pointer-events-auto absolute z-30 cursor-text border border-transparent bg-transparent p-0 outline-none hover:border-blue-400"
+  textClickRef.current = {
+    id: box.id,
+    time: Date.now(),
+  };
+}}
+
+onClick={(event) => {
+  event.stopPropagation();
+  startEditing(box);
+}}
+
+          className="pointer-events-auto absolute z-30 cursor-text border border-dashed border-transparent bg-transparent p-0 outline-none hover:border-blue-500"
 
           style={{
             left: box.left,
             top: box.top,
 
             width: Math.max(
-              box.width,
-              5
-            ),
+  measuredTextBox.width,
+  box.width + 4
+),
 
-            height: Math.max(
-              box.height,
-              8
-            ),
+height: Math.max(
+  measuredTextBox.height,
+  box.height + 2
+),
 
             transform: `rotate(${box.angle}deg)`,
 
