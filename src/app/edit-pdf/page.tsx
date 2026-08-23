@@ -43,6 +43,7 @@ type TextBox = {
   fontSize: number;
   fontFamily: string;
   fontName: string;
+  sourceItemIndexes: number[];
   backgroundColor: string;
   isNew?: boolean;
 };
@@ -267,7 +268,7 @@ const [pdfSourceBytes, setPdfSourceBytes] =
   const [pageNumber, setPageNumber] = useState(1);
   const [pageCount, setPageCount] = useState(0);
 
-  const [scale, setScale] = useState(1.3);
+  const [scale, setScale] = useState(2.3);
   const [rotation, setRotation] = useState(0);
 
   const [loading, setLoading] = useState(false);
@@ -1003,6 +1004,7 @@ text: "",
     fontSize: 14,
     fontFamily: "Arial",
     fontName: "Arial",
+    sourceItemIndexes: [],
     backgroundColor: "transparent",
     isNew: true,
   };
@@ -2094,6 +2096,10 @@ const sameStyle =
 
       previous.id =
         `${previous.id}-${box.id}`;
+        previous.sourceItemIndexes = [
+  ...previous.sourceItemIndexes,
+  ...box.sourceItemIndexes,
+];
     } else {
       grouped.push({ ...box });
     }
@@ -2335,7 +2341,7 @@ const loadedPdf = await pdfjsLib.getDocument({
       setPageCount(loadedPdf.numPages);
       setPageNumber(1);
 
-      setScale(1.3);
+      setScale(2.3);
       setRotation(0);
 
       setTextBoxes([]);
@@ -2483,13 +2489,43 @@ const rawFontName =
   item.fontName ||
   "Arial";
 
-const fontFamily = rawFontName
+const cleanedFontName = rawFontName
   .replace(/^[A-Z]{6}\+/, "")
+  .replace(/-\d+$/, "")
   .replace(
-    /[-\s]?(BoldItalic|BoldOblique|Bold|Italic|Oblique)$/i,
+    /[-\s]?(Regular|BoldItalic|BoldOblique|Bold|Italic|Oblique)$/i,
     ""
   )
   .trim();
+
+const fontFamily =
+  /^Roboto/i.test(cleanedFontName)
+    ? "Roboto"
+    : /^OpenSans/i.test(cleanedFontName)
+    ? "Open Sans"
+    : /^Arial(?:MT)?/i.test(cleanedFontName)
+    ? "Arial"
+    : /^Georgia/i.test(cleanedFontName)
+    ? "Georgia"
+    : /^Verdana/i.test(cleanedFontName)
+    ? "Verdana"
+    : /^Tahoma/i.test(cleanedFontName)
+    ? "Tahoma"
+    : /^Trebuchet/i.test(cleanedFontName)
+    ? "Trebuchet MS"
+    : /^Garamond/i.test(cleanedFontName)
+    ? "Garamond"
+    : /^Palatino/i.test(cleanedFontName)
+    ? "Palatino Linotype"
+    : /^Bookman/i.test(cleanedFontName)
+    ? "Bookman"
+    : /^Century\s*Gothic/i.test(cleanedFontName)
+    ? "Century Gothic"
+    : /^Calibri/i.test(cleanedFontName)
+    ? "Calibri"
+    : /^Cambria/i.test(cleanedFontName)
+    ? "Cambria"
+    : cleanedFontName;
 
             return [
               {
@@ -2511,7 +2547,7 @@ text: item.str,
 
                 fontFamily,
 fontName: rawFontName,
-
+sourceItemIndexes: [index],
                 backgroundColor: sampleBackgroundColor(
   context,
   left,
@@ -2916,6 +2952,10 @@ const applyChanges = async () => {
   PDFName,
   PDFArray,
   PDFString,
+  PDFRawStream,
+  PDFRef,
+  decodePDFRawStream,
+  arrayAsString,
 } = await import("pdf-lib");
 
     const originalBytes = pdfSourceBytes
@@ -2923,6 +2963,138 @@ const applyChanges = async () => {
   : new Uint8Array(await file.arrayBuffer());
 
     const outputPdf = await PDFDocument.load(originalBytes);
+    // Remove existing PDF text layers at the original
+// position before drawing the edited replacement text.
+const removeExistingTextLayersAtPosition = async (
+  box: TextBox
+) => {
+  if (box.isNew) return;
+
+  const targetPoint =
+    await viewportPointToPdfPoint(
+      box.left,
+      box.top +
+        Math.max(
+          box.fontSize,
+          box.height
+        ),
+      box.pageNumber,
+      box.viewScale,
+      box.viewRotation
+    );
+
+  if (!targetPoint) return;
+
+  const targetPage =
+    outputPdf.getPage(box.pageNumber - 1);
+
+  const { Contents } =
+    targetPage.node.normalizedEntries();
+
+  if (!Contents) return;
+
+  const targetX = targetPoint.x;
+  const targetY = targetPoint.y;
+
+  // Small tolerance for decimal coordinate differences.
+  const coordinateTolerance = 0.75;
+
+  const numberPattern =
+    "[-+]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)";
+
+  const createTextAtTmRegex = () =>
+    new RegExp(
+      `((?:${numberPattern})\\s+` +
+        `(?:${numberPattern})\\s+` +
+        `(?:${numberPattern})\\s+` +
+        `(?:${numberPattern})\\s+` +
+        `(${numberPattern})\\s+` +
+        `(${numberPattern})\\s+Tm\\s*)` +
+        `((?:\\((?:\\\\.|[^\\\\)])*\\)|<[^>]*>|\\[[\\s\\S]*?\\])\\s*)` +
+        `(Tj|TJ)`,
+      "g"
+    );
+
+  Contents.asArray().forEach((contentRef) => {
+    if (!(contentRef instanceof PDFRef)) return;
+
+    const contentObject =
+      outputPdf.context.lookup(contentRef);
+
+    if (!(contentObject instanceof PDFRawStream)) {
+      return;
+    }
+
+    try {
+      const decodedBytes =
+        decodePDFRawStream(contentObject).decode();
+
+      const decodedText =
+        arrayAsString(decodedBytes);
+
+      let changed = false;
+
+      const updatedText =
+        decodedText.replace(
+          createTextAtTmRegex(),
+          (
+            fullMatch,
+            matrixPart,
+            xValue,
+            yValue,
+            _textOperand,
+            operator
+          ) => {
+            const currentX = Number(xValue);
+            const currentY = Number(yValue);
+
+            const samePosition =
+              Math.abs(currentX - targetX) <=
+                coordinateTolerance &&
+              Math.abs(currentY - targetY) <=
+                coordinateTolerance;
+
+            if (!samePosition) {
+              return fullMatch;
+            }
+
+            changed = true;
+            
+            return operator === "TJ"
+              ? `${matrixPart}[] TJ`
+              : `${matrixPart}() Tj`;
+          }
+        );
+
+      if (!changed) return;
+
+      const updatedBytes =
+        Uint8Array.from(
+          updatedText,
+          (character) =>
+            character.charCodeAt(0) & 0xff
+        );
+
+      const newStream =
+        outputPdf.context.flateStream(
+          updatedBytes
+        );
+
+      outputPdf.context.assign(
+        contentRef,
+        newStream
+      );
+    } catch (error) {
+      console.error(
+        "TEXT LAYER REMOVAL FAILED:",
+        box.text,
+        error
+      );
+    }
+  });
+
+  
+};
     const fontkitModule = await import("@pdf-lib/fontkit");
 const fontkit = fontkitModule.default;
 
@@ -2961,6 +3133,121 @@ const [
   loadFontBytes("/fonts/open-sans-400-italic.woff"),
   loadFontBytes("/fonts/open-sans-700-normal.woff"),
   loadFontBytes("/fonts/open-sans-700-italic.woff"),
+]);
+const [
+  arialRegularBytes,
+  arialItalicBytes,
+  arialBoldBytes,
+  arialBoldItalicBytes,
+] = await Promise.all([
+  loadFontBytes("/fonts/arial-400-normal.ttf"),
+  loadFontBytes("/fonts/arial-400-italic.ttf"),
+  loadFontBytes("/fonts/arial-700-normal.ttf"),
+  loadFontBytes("/fonts/arial-700-italic.ttf"),
+]);
+const [
+  georgiaRegularBytes,
+  georgiaItalicBytes,
+  georgiaBoldBytes,
+  georgiaBoldItalicBytes,
+] = await Promise.all([
+  loadFontBytes("/fonts/georgia-400-normal.ttf"),
+  loadFontBytes("/fonts/georgia-400-italic.ttf"),
+  loadFontBytes("/fonts/georgia-700-normal.ttf"),
+  loadFontBytes("/fonts/georgia-700-italic.ttf"),
+]);
+const [
+  verdanaRegularBytes,
+  verdanaItalicBytes,
+  verdanaBoldBytes,
+  verdanaBoldItalicBytes,
+] = await Promise.all([
+  loadFontBytes("/fonts/verdana-400-normal.ttf"),
+  loadFontBytes("/fonts/verdana-400-italic.ttf"),
+  loadFontBytes("/fonts/verdana-700-normal.ttf"),
+  loadFontBytes("/fonts/verdana-700-italic.ttf"),
+]);
+const [
+  tahomaRegularBytes,
+  tahomaBoldBytes,
+] = await Promise.all([
+  loadFontBytes("/fonts/tahoma-400-normal.ttf"),
+  loadFontBytes("/fonts/tahoma-700-normal.ttf"),
+]);
+const [
+  trebuchetRegularBytes,
+  trebuchetItalicBytes,
+  trebuchetBoldBytes,
+  trebuchetBoldItalicBytes,
+] = await Promise.all([
+  loadFontBytes("/fonts/trebuchet-400-normal.ttf"),
+  loadFontBytes("/fonts/trebuchet-400-italic.ttf"),
+  loadFontBytes("/fonts/trebuchet-700-normal.ttf"),
+  loadFontBytes("/fonts/trebuchet-700-italic.ttf"),
+]);
+const [
+  garamondRegularBytes,
+  garamondItalicBytes,
+  garamondBoldBytes,
+] = await Promise.all([
+  loadFontBytes("/fonts/garamond-400-normal.ttf"),
+  loadFontBytes("/fonts/garamond-400-italic.ttf"),
+  loadFontBytes("/fonts/garamond-700-normal.ttf"),
+]);
+const [
+  palatinoRegularBytes,
+  palatinoItalicBytes,
+  palatinoBoldBytes,
+  palatinoBoldItalicBytes,
+] = await Promise.all([
+  loadFontBytes("/fonts/palatino-400-normal.ttf"),
+  loadFontBytes("/fonts/palatino-400-italic.ttf"),
+  loadFontBytes("/fonts/palatino-700-normal.ttf"),
+  loadFontBytes("/fonts/palatino-700-italic.ttf"),
+]);
+const [
+  bookmanRegularBytes,
+  bookmanItalicBytes,
+  bookmanBoldBytes,
+  bookmanBoldItalicBytes,
+] = await Promise.all([
+  loadFontBytes("/fonts/bookman-400-normal.ttf"),
+  loadFontBytes("/fonts/bookman-400-italic.ttf"),
+  loadFontBytes("/fonts/bookman-700-normal.ttf"),
+  loadFontBytes("/fonts/bookman-700-italic.ttf"),
+]);
+const [
+  centuryGothicRegularBytes,
+  centuryGothicItalicBytes,
+  centuryGothicBoldBytes,
+  centuryGothicBoldItalicBytes,
+] = await Promise.all([
+  loadFontBytes("/fonts/century-gothic-400-normal.ttf"),
+  loadFontBytes("/fonts/century-gothic-400-italic.ttf"),
+  loadFontBytes("/fonts/century-gothic-700-normal.ttf"),
+  loadFontBytes("/fonts/century-gothic-700-italic.ttf"),
+]);
+const [
+  calibriRegularBytes,
+  calibriItalicBytes,
+  calibriBoldBytes,
+  calibriBoldItalicBytes,
+] = await Promise.all([
+  loadFontBytes("/fonts/calibri-400-normal.ttf"),
+  loadFontBytes("/fonts/calibri-400-italic.ttf"),
+  loadFontBytes("/fonts/calibri-700-normal.ttf"),
+  loadFontBytes("/fonts/calibri-700-italic.ttf"),
+]);
+const [
+  cambriaRegularBytes,
+  cambriaItalicBytes,
+  cambriaBoldBytes,
+  cambriaBoldItalicBytes,
+] = await Promise.all([
+  loadFontBytes("/fonts/cambria-400-normal.ttf"),
+  loadFontBytes("/fonts/cambria-400-italic.ttf"),
+  loadFontBytes("/fonts/cambria-700-normal.ttf"),
+  loadFontBytes("/fonts/cambria-700-italic.ttf"),
 ]);
 const [
   robotoRegularFont,
@@ -3006,6 +3293,233 @@ const [
     subset: true,
   }),
 ]);
+const [
+  arialRegularFont,
+  arialItalicFont,
+  arialBoldFont,
+  arialBoldItalicFont,
+] = await Promise.all([
+  outputPdf.embedFont(arialRegularBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(arialItalicBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(arialBoldBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(arialBoldItalicBytes, {
+    subset: true,
+  }),
+]);
+const [
+  georgiaRegularFont,
+  georgiaItalicFont,
+  georgiaBoldFont,
+  georgiaBoldItalicFont,
+] = await Promise.all([
+  outputPdf.embedFont(georgiaRegularBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(georgiaItalicBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(georgiaBoldBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(georgiaBoldItalicBytes, {
+    subset: true,
+  }),
+]);
+const [
+  verdanaRegularFont,
+  verdanaItalicFont,
+  verdanaBoldFont,
+  verdanaBoldItalicFont,
+] = await Promise.all([
+  outputPdf.embedFont(verdanaRegularBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(verdanaItalicBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(verdanaBoldBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(verdanaBoldItalicBytes, {
+    subset: true,
+  }),
+]);
+const [
+  tahomaRegularFont,
+  tahomaBoldFont,
+] = await Promise.all([
+  outputPdf.embedFont(tahomaRegularBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(tahomaBoldBytes, {
+    subset: true,
+  }),
+]);
+const [
+  trebuchetRegularFont,
+  trebuchetItalicFont,
+  trebuchetBoldFont,
+  trebuchetBoldItalicFont,
+] = await Promise.all([
+  outputPdf.embedFont(trebuchetRegularBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(trebuchetItalicBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(trebuchetBoldBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(trebuchetBoldItalicBytes, {
+    subset: true,
+  }),
+]);
+const [
+  garamondRegularFont,
+  garamondItalicFont,
+  garamondBoldFont,
+] = await Promise.all([
+  outputPdf.embedFont(garamondRegularBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(garamondItalicBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(garamondBoldBytes, {
+    subset: true,
+  }),
+]);
+const [
+  palatinoRegularFont,
+  palatinoItalicFont,
+  palatinoBoldFont,
+  palatinoBoldItalicFont,
+] = await Promise.all([
+  outputPdf.embedFont(palatinoRegularBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(palatinoItalicBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(palatinoBoldBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(palatinoBoldItalicBytes, {
+    subset: true,
+  }),
+]);
+const [
+  bookmanRegularFont,
+  bookmanItalicFont,
+  bookmanBoldFont,
+  bookmanBoldItalicFont,
+] = await Promise.all([
+  outputPdf.embedFont(bookmanRegularBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(bookmanItalicBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(bookmanBoldBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(bookmanBoldItalicBytes, {
+    subset: true,
+  }),
+]);
+const [
+  centuryGothicRegularFont,
+  centuryGothicItalicFont,
+  centuryGothicBoldFont,
+  centuryGothicBoldItalicFont,
+] = await Promise.all([
+  outputPdf.embedFont(centuryGothicRegularBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(centuryGothicItalicBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(centuryGothicBoldBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(centuryGothicBoldItalicBytes, {
+    subset: true,
+  }),
+]);
+const [
+  calibriRegularFont,
+  calibriItalicFont,
+  calibriBoldFont,
+  calibriBoldItalicFont,
+] = await Promise.all([
+  outputPdf.embedFont(calibriRegularBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(calibriItalicBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(calibriBoldBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(calibriBoldItalicBytes, {
+    subset: true,
+  }),
+]);
+const [
+  cambriaRegularFont,
+  cambriaItalicFont,
+  cambriaBoldFont,
+  cambriaBoldItalicFont,
+] = await Promise.all([
+  outputPdf.embedFont(cambriaRegularBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(cambriaItalicBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(cambriaBoldBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(cambriaBoldItalicBytes, {
+    subset: true,
+  }),
+]);
     const pages = outputPdf.getPages();
 
     const chooseFont = (edit: TextEdit) => {
@@ -3039,12 +3553,166 @@ if (family.includes("roboto")) {
   }
 
   return openSansRegularFont;
-}     
+}
+if (family.includes("arial")) {
+  if (edit.bold && edit.italic) {
+    return arialBoldItalicFont;
+  }
+
+  if (edit.bold) {
+    return arialBoldFont;
+  }
+
+  if (edit.italic) {
+    return arialItalicFont;
+  }
+
+  return arialRegularFont;
+}
+if (family.includes("georgia")) {
+  if (edit.bold && edit.italic) {
+    return georgiaBoldItalicFont;
+  }
+
+  if (edit.bold) {
+    return georgiaBoldFont;
+  }
+
+  if (edit.italic) {
+    return georgiaItalicFont;
+  }
+
+  return georgiaRegularFont;
+}
+if (family.includes("verdana")) {
+  if (edit.bold && edit.italic) {
+    return verdanaBoldItalicFont;
+  }
+
+  if (edit.bold) {
+    return verdanaBoldFont;
+  }
+
+  if (edit.italic) {
+    return verdanaItalicFont;
+  }
+
+  return verdanaRegularFont;
+} 
+if (family.includes("tahoma")) {
+  if (edit.bold) {
+    return tahomaBoldFont;
+  }
+
+  return tahomaRegularFont;
+} 
+if (family.includes("trebuchet")) {
+  if (edit.bold && edit.italic) {
+    return trebuchetBoldItalicFont;
+  }
+
+  if (edit.bold) {
+    return trebuchetBoldFont;
+  }
+
+  if (edit.italic) {
+    return trebuchetItalicFont;
+  }
+
+  return trebuchetRegularFont;
+}
+if (family.includes("garamond")) {
+  if (edit.bold && edit.italic) {
+    return garamondItalicFont;
+  }
+
+  if (edit.bold) {
+    return garamondBoldFont;
+  }
+
+  if (edit.italic) {
+    return garamondItalicFont;
+  }
+
+  return garamondRegularFont;
+} 
+if (family.includes("palatino")) {
+  if (edit.bold && edit.italic) {
+    return palatinoBoldItalicFont;
+  }
+
+  if (edit.bold) {
+    return palatinoBoldFont;
+  }
+
+  if (edit.italic) {
+    return palatinoItalicFont;
+  }
+
+  return palatinoRegularFont;
+}
+if (family.includes("bookman")) {
+  if (edit.bold && edit.italic) {
+    return bookmanBoldItalicFont;
+  }
+
+  if (edit.bold) {
+    return bookmanBoldFont;
+  }
+
+  if (edit.italic) {
+    return bookmanItalicFont;
+  }
+
+  return bookmanRegularFont;
+}
+if (family.includes("century gothic")) {
+  if (edit.bold && edit.italic) {
+    return centuryGothicBoldItalicFont;
+  }
+
+  if (edit.bold) {
+    return centuryGothicBoldFont;
+  }
+
+  if (edit.italic) {
+    return centuryGothicItalicFont;
+  }
+
+  return centuryGothicRegularFont;
+}
+if (family.includes("calibri")) {
+  if (edit.bold && edit.italic) {
+    return calibriBoldItalicFont;
+  }
+
+  if (edit.bold) {
+    return calibriBoldFont;
+  }
+
+  if (edit.italic) {
+    return calibriItalicFont;
+  }
+
+  return calibriRegularFont;
+}
+if (family.includes("cambria")) {
+  if (edit.bold && edit.italic) {
+    return cambriaBoldItalicFont;
+  }
+
+  if (edit.bold) {
+    return cambriaBoldFont;
+  }
+
+  if (edit.italic) {
+    return cambriaItalicFont;
+  }
+
+  return cambriaRegularFont;
+}
 const isTimes =
-        family.includes("times") ||
-        family.includes("georgia") ||
-        family.includes("garamond") ||
-        family.includes("cambria");
+  family.includes("times");
 
       const isCourier =
         family.includes("courier") ||
@@ -3102,24 +3770,32 @@ const isTimes =
 
       if (!box) continue;
 
-      const hasChanged =
-        box.isNew ||
-        edit.deleted ||
-        edit.text !== box.text ||
-        edit.offsetX !== 0 ||
-        edit.offsetY !== 0 ||
-        edit.bold ||
-        edit.italic ||
-        Math.abs(edit.fontSize - box.fontSize) > 0.01 ||
-        edit.fontFamily !== box.fontFamily ||
-        edit.color !== "#111111";
+      const originalBold =
+  /Bold/i.test(box.fontName);
+
+const originalItalic =
+  /(Italic|Oblique)/i.test(box.fontName);
+
+const hasChanged =
+  box.isNew ||
+  edit.deleted ||
+  edit.text !== box.text ||
+  edit.offsetX !== 0 ||
+  edit.offsetY !== 0 ||
+  edit.bold !== originalBold ||
+  edit.italic !== originalItalic ||
+  Math.abs(edit.fontSize - box.fontSize) > 0.01 ||
+  edit.fontFamily !== box.fontFamily ||
+  edit.color !== "#111111";
 
       if (!hasChanged) continue;
 
       const outputPage = pages[box.pageNumber - 1];
 
       if (!outputPage) continue;
-
+      if (!box.isNew) {
+  await removeExistingTextLayersAtPosition(box);
+}
       /*
        * REMOVE / MASK ORIGINAL TEXT
        */
@@ -5910,7 +6586,7 @@ const y = selectedBox.top + (edit.offsetY ?? 0);
       fontFamily: selectedBox.fontFamily,
     }}
   >
-    Original ({selectedBox.fontFamily})
+    {selectedBox.fontFamily}
   </option>
 
   {fontOptions
@@ -6017,19 +6693,25 @@ const measuredTextBox = measureTextBox(
 
   const isSelected = selectedTextId === box.id;
 
-  const hasChanged =
-    !!edit &&
-    (
-      edit.text !== box.text ||
-      edit.deleted ||
-      edit.offsetX !== 0 ||
-      edit.offsetY !== 0 ||
-      edit.bold ||
-      edit.italic ||
-      edit.fontSize !== box.fontSize ||
-      edit.fontFamily !== box.fontFamily ||
-      edit.color !== "#111111"
-    );
+  const originalBold =
+  /Bold/i.test(box.fontName);
+
+const originalItalic =
+  /(Italic|Oblique)/i.test(box.fontName);
+
+const hasChanged =
+  !!edit &&
+  (
+    edit.text !== box.text ||
+    edit.deleted ||
+    edit.offsetX !== 0 ||
+    edit.offsetY !== 0 ||
+    edit.bold !== originalBold ||
+    edit.italic !== originalItalic ||
+    edit.fontSize !== box.fontSize ||
+    edit.fontFamily !== box.fontFamily ||
+    edit.color !== "#111111"
+  );
 
   const shouldMaskOriginal =
   !box.isNew && (isSelected || hasChanged);
