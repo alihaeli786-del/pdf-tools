@@ -3765,187 +3765,221 @@ const isTimes =
       return StandardFonts.Helvetica;
     };
 
-    for (const [id, edit] of Object.entries(textEdits)) {
-      const box = editBoxes[id];
+    const changedTextEntries: Array<{
+  id: string;
+  edit: TextEdit;
+  box: TextBox;
+}> = [];
 
-      if (!box) continue;
+/*
+ * Build one deterministic list of changed text.
+ * Do not depend on React/object insertion order during export.
+ */
+for (const [id, edit] of Object.entries(textEdits)) {
+  const box = editBoxes[id];
 
-      const originalBold =
-  /Bold/i.test(box.fontName);
+  if (!box) continue;
 
-const originalItalic =
-  /(Italic|Oblique)/i.test(box.fontName);
+  const originalBold =
+    /Bold/i.test(box.fontName);
 
-const hasChanged =
-  box.isNew ||
-  edit.deleted ||
-  edit.text !== box.text ||
-  edit.offsetX !== 0 ||
-  edit.offsetY !== 0 ||
-  edit.bold !== originalBold ||
-  edit.italic !== originalItalic ||
-  Math.abs(edit.fontSize - box.fontSize) > 0.01 ||
-  edit.fontFamily !== box.fontFamily ||
-  edit.color !== "#111111";
+  const originalItalic =
+    /(Italic|Oblique)/i.test(box.fontName);
 
-      if (!hasChanged) continue;
+  const hasChanged =
+    box.isNew ||
+    edit.deleted ||
+    edit.text !== box.text ||
+    edit.offsetX !== 0 ||
+    edit.offsetY !== 0 ||
+    edit.bold !== originalBold ||
+    edit.italic !== originalItalic ||
+    Math.abs(edit.fontSize - box.fontSize) > 0.01 ||
+    edit.fontFamily !== box.fontFamily ||
+    edit.color !== "#111111";
 
-      const outputPage = pages[box.pageNumber - 1];
+  if (!hasChanged) continue;
 
-      if (!outputPage) continue;
-      if (!box.isNew) {
-  await removeExistingTextLayersAtPosition(box);
+  changedTextEntries.push({
+    id,
+    edit,
+    box,
+  });
 }
-      /*
-       * REMOVE / MASK ORIGINAL TEXT
-       */
-      if (!box.isNew) {
-        const maskTopLeft =
-          await viewportPointToPdfPoint(
-            box.left - 2,
-            box.top - 2,
-            box.pageNumber,
-            box.viewScale,
-            box.viewRotation
-          );
 
-        const maskBottomRight =
-          await viewportPointToPdfPoint(
-            box.left + box.width + 5,
-            box.top +
-              Math.max(
-                box.height * 1.35,
-                box.fontSize * 1.25
-              ) +
-              2,
-            box.pageNumber,
-            box.viewScale,
-            box.viewRotation
-          );
+/*
+ * Keep export order stable on localhost, Vercel,
+ * Namecheap, Hostinger and other environments.
+ */
+changedTextEntries.sort((a, b) => {
+  return (
+    a.box.pageNumber - b.box.pageNumber ||
+    a.box.top - b.box.top ||
+    a.box.left - b.box.left ||
+    a.id.localeCompare(b.id)
+  );
+});
 
-        if (maskTopLeft && maskBottomRight) {
-          const background =
-            cssColorToRgb(box.backgroundColor);
+/*
+ * PHASE 1
+ * Remove / mask ALL original text first.
+ *
+ * Important:
+ * No replacement text is drawn during this phase,
+ * so a later mask can never cover newly added text.
+ */
+for (const { box } of changedTextEntries) {
+  if (box.isNew) continue;
 
-          const maskX = Math.min(
-            maskTopLeft.x,
-            maskBottomRight.x
-          );
+  const outputPage =
+    pages[box.pageNumber - 1];
 
-          const maskY = Math.min(
-            maskTopLeft.y,
-            maskBottomRight.y
-          );
+  if (!outputPage) continue;
 
-          const maskWidth = Math.abs(
-            maskBottomRight.x - maskTopLeft.x
-          );
+  await removeExistingTextLayersAtPosition(box);
 
-          const maskHeight = Math.abs(
-            maskBottomRight.y - maskTopLeft.y
-          );
+  const maskTopLeft =
+    await viewportPointToPdfPoint(
+      box.left - 2,
+      box.top - 2,
+      box.pageNumber,
+      box.viewScale,
+      box.viewRotation
+    );
 
-          outputPage.drawRectangle({
-            x: maskX,
-            y: maskY,
-            width: maskWidth,
-            height: maskHeight,
-            color: rgb(
-              background.r,
-              background.g,
-              background.b
-            ),
-          });
-        }
-      }
+  const maskBottomRight =
+    await viewportPointToPdfPoint(
+      box.left + box.width + 5,
+      box.top +
+        Math.max(
+          box.height * 1.35,
+          box.fontSize * 1.25
+        ) +
+        2,
+      box.pageNumber,
+      box.viewScale,
+      box.viewRotation
+    );
 
-      /*
-       * DELETE = only mask original,
-       * don't draw replacement text.
-       */
-      if (edit.deleted || !edit.text.trim()) {
-        continue;
-      }
+  if (!maskTopLeft || !maskBottomRight) {
+    continue;
+  }
 
-      /*
-       * FINAL POSITION OF EDITED / NEW TEXT
-       */
-      const displayLeft =
-        box.left + edit.offsetX;
+  const background =
+    cssColorToRgb(box.backgroundColor);
 
-      const displayTop =
-        box.top + edit.offsetY;
+  const maskX = Math.min(
+    maskTopLeft.x,
+    maskBottomRight.x
+  );
 
-      /*
-       * drawText uses a baseline-like Y position,
-       * so convert near the bottom of the text box.
-       */
-      const textPoint =
-        await viewportPointToPdfPoint(
-          displayLeft,
-          displayTop +
-            Math.max(
-              edit.fontSize,
-              box.height
-            ),
-          box.pageNumber,
-          box.viewScale,
-          box.viewRotation
-        );
+  const maskY = Math.min(
+    maskTopLeft.y,
+    maskBottomRight.y
+  );
 
-      if (!textPoint) continue;
+  const maskWidth = Math.abs(
+    maskBottomRight.x - maskTopLeft.x
+  );
 
-      const selectedFont = chooseFont(edit);
+  const maskHeight = Math.abs(
+    maskBottomRight.y - maskTopLeft.y
+  );
 
-const font =
-  typeof selectedFont === "string"
-    ? await outputPdf.embedFont(selectedFont)
-    : selectedFont;
+  outputPage.drawRectangle({
+    x: maskX,
+    y: maskY,
+    width: maskWidth,
+    height: maskHeight,
+    color: rgb(
+      background.r,
+      background.g,
+      background.b
+    ),
+  });
+}
 
-      const textColor =
-        hexColorToRgb(edit.color);
+/*
+ * PHASE 2
+ * Only AFTER every original-text mask is finished,
+ * draw ALL edited / moved / new text.
+ */
+for (const { edit, box } of changedTextEntries) {
+  if (edit.deleted || !edit.text.trim()) {
+    continue;
+  }
 
-      const pdfFontSize = Math.max(
-        4,
-        edit.fontSize /
-          Math.max(box.viewScale, 0.01)
-      );
+  const outputPage =
+    pages[box.pageNumber - 1];
 
-      /*
-       * Remove editor viewport rotation.
-       * This leaves the text's intrinsic PDF rotation.
-       */
-      let pdfAngle =
-        box.angle - box.viewRotation;
+  if (!outputPage) continue;
 
-      while (pdfAngle > 180) {
-        pdfAngle -= 360;
-      }
+  const displayLeft =
+    box.left + edit.offsetX;
 
-      while (pdfAngle < -180) {
-        pdfAngle += 360;
-      }
+  const displayTop =
+    box.top + edit.offsetY;
 
-      outputPage.drawText(edit.text, {
-        x: textPoint.x,
-        y: textPoint.y,
-
-        size: pdfFontSize,
-
-        font,
-
-        color: rgb(
-          textColor.r,
-          textColor.g,
-          textColor.b
+  const textPoint =
+    await viewportPointToPdfPoint(
+      displayLeft,
+      displayTop +
+        Math.max(
+          edit.fontSize,
+          box.height
         ),
+      box.pageNumber,
+      box.viewScale,
+      box.viewRotation
+    );
 
-        rotate: degrees(pdfAngle),
+  if (!textPoint) continue;
 
-        lineHeight:
-          pdfFontSize * 1.15,
-      });
-    }
+  const selectedFont =
+    chooseFont(edit);
+
+  const font =
+    typeof selectedFont === "string"
+      ? await outputPdf.embedFont(
+          selectedFont
+        )
+      : selectedFont;
+
+  const textColor =
+    hexColorToRgb(edit.color);
+
+  const pdfFontSize = Math.max(
+    4,
+    edit.fontSize /
+      Math.max(box.viewScale, 0.01)
+  );
+
+  let pdfAngle =
+    box.angle - box.viewRotation;
+
+  while (pdfAngle > 180) {
+    pdfAngle -= 360;
+  }
+
+  while (pdfAngle < -180) {
+    pdfAngle += 360;
+  }
+
+  outputPage.drawText(edit.text, {
+    x: textPoint.x,
+    y: textPoint.y,
+    size: pdfFontSize,
+    font,
+    color: rgb(
+      textColor.r,
+      textColor.g,
+      textColor.b
+    ),
+    rotate: degrees(pdfAngle),
+    lineHeight:
+      pdfFontSize * 1.15,
+  });
+}
 for (const [id, edit] of Object.entries(textEdits)) {
   const box = editBoxes[id];
 
