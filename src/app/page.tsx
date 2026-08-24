@@ -5,46 +5,55 @@ export default function Home() {
       description: "Edit text, images, signatures and more inside your PDF.",
       icon: "✏️",
       featured: true,
+      href: "/edit-pdf",
     },
     {
       title: "Merge PDF",
       description: "Combine multiple PDF files into one document.",
       icon: "📑",
+      href: "/merge-pdf",
     },
     {
       title: "Split PDF",
       description: "Separate PDF pages into individual files.",
       icon: "✂️",
+      href: "/split-pdf",
     },
     {
       title: "Compress PDF",
       description: "Reduce PDF file size while keeping good quality.",
       icon: "🗜️",
+      comingSoon: true,
     },
     {
       title: "PDF to JPG",
       description: "Convert PDF pages into high-quality JPG images.",
       icon: "🖼️",
+      comingSoon: true,
     },
     {
       title: "JPG to PDF",
       description: "Turn your images into a professional PDF document.",
       icon: "📄",
+      comingSoon: true,
     },
     {
       title: "Image Converter",
       description: "Convert JPG, PNG, WebP and other image formats.",
       icon: "🔄",
+      comingSoon: true,
     },
     {
       title: "Compress Image",
       description: "Reduce image size without noticeable quality loss.",
       icon: "⚡",
+      comingSoon: true,
     },
     {
       title: "Resize Image",
       description: "Resize images quickly to the exact dimensions you need.",
       icon: "↔️",
+      comingSoon: true,
     },
   ];
 
@@ -133,38 +142,72 @@ export default function Home() {
           </div>
 
           <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-            {tools.map((tool) => (
-              <button
-                key={tool.title}
-                className={`group relative rounded-2xl border bg-white p-6 text-left shadow-sm transition duration-200 hover:-translate-y-1 hover:shadow-lg ${
-                  tool.featured
-                    ? "border-blue-300 ring-1 ring-blue-100"
-                    : "border-slate-200"
-                }`}
-              >
-                {tool.featured && (
-                  <span className="absolute right-4 top-4 rounded-full bg-blue-100 px-3 py-1 text-xs font-bold text-blue-700">
-                    POPULAR
-                  </span>
-                )}
+            {tools.map((tool) => {
+  const isComingSoon = tool.comingSoon;
 
-                <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-xl bg-slate-100 text-2xl transition group-hover:bg-blue-50">
-                  {tool.icon}
-                </div>
+  if (tool.href && !isComingSoon) {
+    return (
+      <a
+        key={tool.title}
+        href={tool.href}
+        className={`group relative rounded-2xl border bg-white p-6 text-left shadow-sm transition duration-200 hover:-translate-y-1 hover:shadow-lg ${
+          tool.featured
+            ? "border-blue-300 ring-1 ring-blue-100"
+            : "border-slate-200"
+        }`}
+      >
+        {tool.featured && (
+          <span className="absolute right-4 top-4 rounded-full bg-blue-100 px-3 py-1 text-xs font-bold text-blue-700">
+            POPULAR
+          </span>
+        )}
 
-                <h3 className="text-lg font-bold text-slate-900">
-                  {tool.title}
-                </h3>
+        <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-xl bg-slate-100 text-2xl transition group-hover:bg-blue-50">
+          {tool.icon}
+        </div>
 
-                <p className="mt-2 text-sm leading-6 text-slate-600">
-                  {tool.description}
-                </p>
+        <h3 className="text-lg font-bold text-slate-900">
+          {tool.title}
+        </h3>
 
-                <div className="mt-5 text-sm font-semibold text-blue-600">
-                  Open tool →
-                </div>
-              </button>
-            ))}
+        <p className="mt-2 text-sm leading-6 text-slate-600">
+          {tool.description}
+        </p>
+
+        <div className="mt-5 text-sm font-semibold text-blue-600">
+          Open tool →
+        </div>
+      </a>
+    );
+  }
+
+  return (
+    <div
+      key={tool.title}
+      className="relative rounded-2xl border border-slate-200 bg-slate-50 p-6 text-left shadow-sm opacity-80"
+    >
+      <span className="absolute right-4 top-4 rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-amber-700">
+        COMING SOON
+      </span>
+
+      <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-xl bg-slate-100 text-2xl">
+        {tool.icon}
+      </div>
+
+      <h3 className="text-lg font-bold text-slate-900">
+        {tool.title}
+      </h3>
+
+      <p className="mt-2 text-sm leading-6 text-slate-600">
+        {tool.description}
+      </p>
+
+      <div className="mt-5 text-sm font-semibold text-slate-400">
+        Coming soon
+      </div>
+    </div>
+  );
+})}
           </div>
         </div>
       </section>
