@@ -353,6 +353,7 @@ const [linkTargetType, setLinkTargetType] =
   useState<LinkTargetType>("url");
 const [linkTargetValue, setLinkTargetValue] = useState("");
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const pageEditorRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const signatureCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -360,6 +361,61 @@ const [linkTargetValue, setLinkTargetValue] = useState("");
   const signatureCameraVideoRef = useRef<HTMLVideoElement>(null);
 const signatureCameraStreamRef = useRef<MediaStream | null>(null);
 const signatureDrawingRef = useRef(false);
+const getVisibleImagePlacement = (
+  width: number,
+  height: number
+) => {
+  const pageElement = pageEditorRef.current;
+
+  if (!pageElement || typeof window === "undefined") {
+    return {
+      left: Math.max(20, (pageSize.width - width) / 2),
+      top: Math.max(20, (pageSize.height - height) / 2),
+    };
+  }
+
+  const rect = pageElement.getBoundingClientRect();
+
+  const visibleLeft = Math.max(rect.left, 0);
+  const visibleRight = Math.min(
+    rect.right,
+    window.innerWidth
+  );
+
+  const visibleTop = Math.max(rect.top, 70);
+  const visibleBottom = Math.min(
+    rect.bottom,
+    window.innerHeight
+  );
+
+  const centerX =
+    visibleRight > visibleLeft
+      ? (visibleLeft + visibleRight) / 2 - rect.left
+      : pageSize.width / 2;
+
+  const centerY =
+    visibleBottom > visibleTop
+      ? (visibleTop + visibleBottom) / 2 - rect.top
+      : pageSize.height / 2;
+
+  return {
+    left: Math.max(
+      20,
+      Math.min(
+        pageSize.width - width - 20,
+        centerX - width / 2
+      )
+    ),
+
+    top: Math.max(
+      20,
+      Math.min(
+        pageSize.height - height - 20,
+        centerY - height / 2
+      )
+    ),
+  };
+};
   const duplicateCounterRef = useRef(0);
   const newTextCounterRef = useRef(0);
   const imageCounterRef = useRef(0);
@@ -393,6 +449,13 @@ const whiteoutMoveRef = useRef<{
   startY: number;
   initialLeft: number;
   initialTop: number;
+} | null>(null);
+const whiteoutResizeRef = useRef<{
+  id: string;
+  startX: number;
+  startY: number;
+  initialWidth: number;
+  initialHeight: number;
 } | null>(null);
 const annotateMoveRef = useRef<{
   id: string;
@@ -796,6 +859,8 @@ const useTypedSignature = () => {
 
   const width = 220;
   const height = 70;
+  const placement =
+  getVisibleImagePlacement(width, height);
 
   const newSignature: ImageBox = {
     id: `signature-${imageCounterRef.current}`,
@@ -804,8 +869,8 @@ const useTypedSignature = () => {
     viewRotation: rotation,
     src,
     mimeType: "image/png",
-    left: Math.max(20, (pageSize.width - width) / 2),
-    top: Math.max(20, (pageSize.height - height) / 2),
+    left: placement.left,
+    top: placement.top,
     width,
     height,
   };
@@ -849,6 +914,8 @@ const useDrawnSignature = () => {
 
   const width = 220;
   const height = width * (canvas.height / canvas.width);
+  const placement =
+  getVisibleImagePlacement(width, height);
 
   const newSignature: ImageBox = {
     id: `signature-${imageCounterRef.current}`,
@@ -857,8 +924,8 @@ const useDrawnSignature = () => {
     viewRotation: rotation,
     src,
     mimeType: "image/png",
-    left: Math.max(20, (pageSize.width - width) / 2),
-    top: Math.max(20, (pageSize.height - height) / 2),
+    left: placement.left,
+    top: placement.top,
     width,
     height,
   };
@@ -937,16 +1004,40 @@ const useDrawnSignature = () => {
   };
 
   const deleteSelectedText = () => {
-    if (!selectedBox) return;
+  if (!selectedBox) return;
 
-    updateEdit(selectedBox, {
-      text: "",
-      deleted: true,
+  if (selectedBox.isNew) {
+    setTextBoxes((current) =>
+      current.filter(
+        (box) => box.id !== selectedBox.id
+      )
+    );
+
+    setTextEdits((current) => {
+      const next = { ...current };
+      delete next[selectedBox.id];
+      return next;
+    });
+
+    setEditBoxes((current) => {
+      const next = { ...current };
+      delete next[selectedBox.id];
+      return next;
     });
 
     setSelectedTextId(null);
     setMoveMode(false);
-  };
+    return;
+  }
+
+  updateEdit(selectedBox, {
+    text: "",
+    deleted: true,
+  });
+
+  setSelectedTextId(null);
+  setMoveMode(false);
+};
 const duplicateSelectedText = () => {
   if (!selectedBox) return;
 
@@ -1033,7 +1124,7 @@ setEditBoxes((current) => ({
     },
   }));
 
-  setSelectedTextId(newId);
+  setSelectedTextId(null);
   setMoveMode(false);
   setAddTextMode(false);
 };
@@ -1125,6 +1216,8 @@ const endWhiteout = (
       ...current,
       currentWhiteout,
     ]);
+    setSelectedWhiteoutId(currentWhiteout.id);
+    setWhiteoutMode(false);
   }
 
   setDraftWhiteout(null);
@@ -1181,6 +1274,96 @@ const moveWhiteoutBox = (
         : currentBox
     )
   );
+};
+const handleWhiteoutResizeStart = (
+  event: React.PointerEvent<HTMLDivElement>
+) => {
+  if (!selectedWhiteoutBox) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+
+  event.currentTarget.setPointerCapture(event.pointerId);
+
+  whiteoutResizeRef.current = {
+    id: selectedWhiteoutBox.id,
+    startX: event.clientX,
+    startY: event.clientY,
+    initialWidth: selectedWhiteoutBox.width,
+    initialHeight: selectedWhiteoutBox.height,
+  };
+};
+
+const handleWhiteoutResizeMove = (
+  event: React.PointerEvent<HTMLDivElement>
+) => {
+  if (!selectedWhiteoutBox) return;
+
+  const resize = whiteoutResizeRef.current;
+
+  if (
+    !resize ||
+    resize.id !== selectedWhiteoutBox.id
+  ) {
+    return;
+  }
+
+  const whiteoutScale =
+    scale / selectedWhiteoutBox.viewScale;
+
+  const deltaX =
+    (event.clientX - resize.startX) /
+    whiteoutScale;
+
+  const deltaY =
+    (event.clientY - resize.startY) /
+    whiteoutScale;
+
+  const newWidth = Math.max(
+    10,
+    resize.initialWidth + deltaX
+  );
+
+  const newHeight = Math.max(
+    10,
+    resize.initialHeight + deltaY
+  );
+
+  setWhiteoutBoxes((current) =>
+    current.map((box) =>
+      box.id === selectedWhiteoutBox.id
+        ? {
+            ...box,
+            width: newWidth,
+            height: newHeight,
+          }
+        : box
+    )
+  );
+};
+
+const handleWhiteoutResizeEnd = (
+  event: React.PointerEvent<HTMLDivElement>
+) => {
+  if (
+    !selectedWhiteoutBox ||
+    whiteoutResizeRef.current?.id !==
+      selectedWhiteoutBox.id
+  ) {
+    return;
+  }
+
+  whiteoutResizeRef.current = null;
+
+  if (
+    event.currentTarget.hasPointerCapture(
+      event.pointerId
+    )
+  ) {
+    event.currentTarget.releasePointerCapture(
+      event.pointerId
+    );
+  }
 };
 const endWhiteoutMove = (
   event: React.PointerEvent<HTMLDivElement>
@@ -1275,16 +1458,18 @@ const endAnnotate = (
   }
 
   if (
-    currentAnnotate &&
-    currentAnnotate.width > 2 &&
-    currentAnnotate.height > 2
-  ) {
-    setAnnotateBoxes((current) => [
-      ...current,
-      currentAnnotate,
-    ]);
-  }
+  currentAnnotate &&
+  currentAnnotate.width > 2 &&
+  currentAnnotate.height > 2
+) {
+  setAnnotateBoxes((current) => [
+    ...current,
+    currentAnnotate,
+  ]);
 
+  setSelectedAnnotateId(currentAnnotate.id);
+  setAnnotateMode(false);
+}
   setDraftAnnotate(null);
 };
 const startLinkArea = (
@@ -2163,7 +2348,10 @@ const y = Math.max(
 
     return `rgb(${average[0]}, ${average[1]}, ${average[2]})`;
   };
-const handleImageFile = (selectedFile?: File) => {
+const handleImageFile = (
+  selectedFile?: File,
+  useVisiblePlacement = false
+) => {
   if (!selectedFile) return;
 
   if (
@@ -2187,6 +2375,12 @@ const handleImageFile = (selectedFile?: File) => {
       const width = Math.min(image.naturalWidth, maxWidth);
       const height =
         (image.naturalHeight / image.naturalWidth) * width;
+        const placement = useVisiblePlacement
+  ? getVisibleImagePlacement(width, height)
+  : {
+      left: Math.max(20, (pageSize.width - width) / 2),
+      top: Math.max(20, (pageSize.height - height) / 2),
+    };
 
       const newImage: ImageBox = {
         id: `image-${imageCounterRef.current}`,
@@ -2197,8 +2391,8 @@ const handleImageFile = (selectedFile?: File) => {
         mimeType: selectedFile.type as
           | "image/png"
           | "image/jpeg",
-        left: Math.max(20, (pageSize.width - width) / 2),
-        top: Math.max(20, (pageSize.height - height) / 2),
+        left: placement.left,
+        top: placement.top,
         width,
         height,
       };
@@ -2216,7 +2410,7 @@ setSelectedTextId(null);
 const handleSignatureImageFile = (selectedFile?: File) => {
   if (!selectedFile) return;
 
-  handleImageFile(selectedFile);
+  handleImageFile(selectedFile, true);
 
   setShowSignDialog(false);
   setSignDialogMode("type");
@@ -2282,6 +2476,8 @@ const captureSignatureCamera = () => {
   const width = 220;
   const height =
     width * (canvas.height / canvas.width);
+    const placement =
+  getVisibleImagePlacement(width, height);
 
   const newImage: ImageBox = {
     id: `signature-camera-${imageCounterRef.current}`,
@@ -2290,8 +2486,8 @@ const captureSignatureCamera = () => {
     viewRotation: rotation,
     src,
     mimeType: "image/png",
-    left: Math.max(20, (pageSize.width - width) / 2),
-    top: Math.max(20, (pageSize.height - height) / 2),
+    left: placement.left,
+    top: placement.top,
     width,
     height,
   };
@@ -4751,7 +4947,7 @@ const shapeFillColor = hexToPdfRgb(shape.fillColor);
   accept="image/png,image/jpeg"
   className="hidden"
   onChange={(event) => {
-  handleImageFile(event.target.files?.[0]);
+  handleImageFile(event.target.files?.[0], true);
   event.target.value = "";
 }}
 />
@@ -5273,6 +5469,21 @@ onPointerUp={stopSignatureDrawing}
               }
               className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
             />
+            <label className="mt-3 flex items-center gap-3 rounded-md border border-slate-200 p-3">
+  <input
+    type="checkbox"
+    checked={selectedFormField.checked ?? false}
+    onChange={(event) =>
+      updateSelectedFormField({
+        checked: event.target.checked,
+      })
+    }
+  />
+
+  <span className="text-sm text-slate-700">
+    Checked by default
+  </span>
+</label>
 
             <p className="mt-1 text-xs text-slate-500">
               Radio buttons with the same field name will belong to the same group.
@@ -5858,6 +6069,7 @@ if (tool.label === "Shapes") {
   )}
   
         <div
+        ref={pageEditorRef}
   className={`relative bg-white shadow-xl ${
   pageCount === 0
     ? "hidden"
@@ -5902,7 +6114,17 @@ onPointerUp={(event) => {
     }
 
     setSelectedTextId(null);
-    setMoveMode(false);
+setSelectedImageId(null);
+setSelectedWhiteoutId(null);
+setSelectedAnnotateId(null);
+setSelectedFormFieldId(null);
+setSelectedShapeId(null);
+
+setShowFormProperties(false);
+setShowShapeProperties(false);
+
+setImageMoveMode(false);
+setMoveMode(false);
   }}
 >
           <canvas
@@ -5922,8 +6144,8 @@ onPointerUp={(event) => {
   onPointerUp={endWhiteoutMove}
   className={`absolute z-10 cursor-move bg-white ${
     selectedWhiteoutId === box.id
-      ? "outline-2 outline-blue-500"
-      : ""
+  ? "outline outline-2 outline-dashed outline-blue-500"
+  : ""
   }`}
   style={{
     left: box.left * whiteoutScale,
@@ -5934,7 +6156,32 @@ onPointerUp={(event) => {
 />
     );
   })}
+{selectedWhiteoutBox && (() => {
+  const whiteoutScale =
+    scale / selectedWhiteoutBox.viewScale;
 
+  return (
+    <div
+      className="absolute z-40 h-4 w-4 cursor-nwse-resize rounded-sm border-2 border-white bg-blue-600 shadow"
+      style={{
+        left:
+          (selectedWhiteoutBox.left +
+            selectedWhiteoutBox.width) *
+            whiteoutScale -
+          8,
+
+        top:
+          (selectedWhiteoutBox.top +
+            selectedWhiteoutBox.height) *
+            whiteoutScale -
+          8,
+      }}
+      onPointerDown={handleWhiteoutResizeStart}
+      onPointerMove={handleWhiteoutResizeMove}
+      onPointerUp={handleWhiteoutResizeEnd}
+    />
+  );
+})()}
 {draftWhiteout && draftWhiteout.pageNumber === pageNumber && (
   <div
     className="pointer-events-none absolute z-20 border-2 border-dashed border-blue-500 bg-white"
@@ -6065,8 +6312,12 @@ onPointerUp={endFormFieldMove}
 )}
 
         {field.fieldType === "radio" && (
-          <div className="h-full w-full rounded-full border-2 border-slate-600 bg-white" />
-        )}
+  <div className="flex h-full w-full items-center justify-center rounded-full border-2 border-slate-600 bg-white">
+    {field.checked && (
+      <div className="h-2.5 w-2.5 rounded-full bg-slate-800" />
+    )}
+  </div>
+)}
 
         {field.fieldType === "dropdown" && (
   <div className="flex h-full w-full items-center justify-between border border-slate-500 bg-white px-2 text-xs text-slate-500">
@@ -6362,18 +6613,15 @@ onPointerUp={endShapeMove}
         src={imageBox.src}
         alt=""
         draggable={false}
-        onMouseDown={(event) => {
-  event.stopPropagation();
-  setSelectedImageId(imageBox.id);
-  setSelectedTextId(null);
-  setMoveMode(false);
-}}
+        
 onPointerDown={(event) => {
 
 
   event.preventDefault();
   event.stopPropagation();
-
+setSelectedImageId(imageBox.id);
+setSelectedTextId(null);
+setMoveMode(false);
   event.currentTarget.setPointerCapture(event.pointerId);
 
   imageDragRef.current = {
@@ -6422,7 +6670,7 @@ onPointerUp={(event) => {
 }}
         className={`absolute z-20 select-none ${
   selectedImageId === imageBox.id
-    ? "outline-2 outline-blue-500"
+    ? "outline outline-2 outline-dashed outline-blue-500"
     : ""
 }`}
         style={{
@@ -6472,6 +6720,7 @@ onPointerUp={handleImageResizeEnd}
         ),
       }}
       onPointerDown={(event) => event.stopPropagation()}
+      onMouseDown={(event) => event.stopPropagation()}
     >
       <button
         onClick={deleteSelectedAnnotate}
@@ -7222,7 +7471,11 @@ onClick={(event) => {
   startEditing(box);
 }}
 
-          className="pointer-events-auto absolute z-30 cursor-text border border-dashed border-transparent bg-transparent p-0 outline-none hover:border-blue-500"
+          className={`pointer-events-auto absolute z-30 cursor-text border border-dashed bg-transparent p-0 outline-none ${
+  box.isNew && !activeEdit.text.trim()
+    ? "border-blue-500"
+    : "border-transparent hover:border-blue-500"
+}`}
 
           style={{
             left: box.left,
