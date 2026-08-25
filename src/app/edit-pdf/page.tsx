@@ -833,26 +833,42 @@ const useTypedSignature = () => {
     signatureStyles[0];
 
   const canvas = document.createElement("canvas");
-  canvas.width = 500;
-  canvas.height = 160;
 
-  const context = canvas.getContext("2d");
-  if (!context) return;
+const fontSize = 72;
+const paddingX = 50;
+const canvasHeight = 160;
 
-  context.clearRect(0, 0, canvas.width, canvas.height);
+const measureContext = canvas.getContext("2d");
+if (!measureContext) return;
 
-  context.fillStyle = "#111111";
-  context.textAlign = "center";
-  context.textBaseline = "middle";
+measureContext.font = `${selectedStyle.fontStyle} ${selectedStyle.fontWeight} ${fontSize}px ${selectedStyle.fontFamily}`;
 
-  context.font = `${selectedStyle.fontStyle} ${selectedStyle.fontWeight} 72px ${selectedStyle.fontFamily}`;
+const textWidth = measureContext.measureText(
+  typedSignature.trim()
+).width;
 
-  context.fillText(
-    typedSignature.trim(),
-    canvas.width / 2,
-    canvas.height / 2
-  );
+canvas.width = Math.max(
+  500,
+  Math.ceil(textWidth + paddingX * 2)
+);
+canvas.height = canvasHeight;
 
+const context = canvas.getContext("2d");
+if (!context) return;
+
+context.clearRect(0, 0, canvas.width, canvas.height);
+
+context.fillStyle = "#111111";
+context.textAlign = "center";
+context.textBaseline = "middle";
+
+context.font = `${selectedStyle.fontStyle} ${selectedStyle.fontWeight} ${fontSize}px ${selectedStyle.fontFamily}`;
+
+context.fillText(
+  typedSignature.trim(),
+  canvas.width / 2,
+  canvas.height / 2
+);
   const src = canvas.toDataURL("image/png");
 
   imageCounterRef.current += 1;
@@ -1074,7 +1090,7 @@ const duplicateId = `duplicate-${pageNumber}-${duplicateCounterRef.current}`;
   }));
 
   setSelectedTextId(duplicateId);
-  setMoveMode(false);
+setMoveMode(true);
 };
 const addNewTextAt = (x: number, y: number) => {
   newTextCounterRef.current += 1;
@@ -6142,7 +6158,7 @@ setMoveMode(false);
   onPointerDown={(event) => startWhiteoutMove(event, box)}
   onPointerMove={moveWhiteoutBox}
   onPointerUp={endWhiteoutMove}
-  className={`absolute z-10 cursor-move bg-white ${
+  className={`absolute z-[45] cursor-move bg-white ${
     selectedWhiteoutId === box.id
   ? "outline outline-2 outline-dashed outline-blue-500"
   : ""
@@ -6162,7 +6178,7 @@ setMoveMode(false);
 
   return (
     <div
-      className="absolute z-40 h-4 w-4 cursor-nwse-resize rounded-sm border-2 border-white bg-blue-600 shadow"
+      className="absolute z-[60] h-4 w-4 cursor-nwse-resize rounded-sm border-2 border-white bg-blue-600 shadow"
       style={{
         left:
           (selectedWhiteoutBox.left +
@@ -7386,9 +7402,10 @@ userSelect: moveMode ? "none" : "text",
 
       {/* FINISHED EDITED TEXT */}
       {!isSelected &&
-        edit &&
-        !edit.deleted &&
-        hasChanged && (
+  edit &&
+  !edit.deleted &&
+  (hasChanged ||
+    (box.isNew && !!activeEdit.text.trim())) && (
           <button
             type="button"
 
