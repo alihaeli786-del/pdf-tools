@@ -3,56 +3,80 @@ export default function Home() {
     {
       title: "Edit PDF",
       description: "Edit text, images, signatures and more inside your PDF.",
-      icon: "✏️",
+      icon: "\u270F\uFE0F",
       featured: true,
       href: "/edit-pdf",
     },
     {
       title: "Merge PDF",
       description: "Combine multiple PDF files into one document.",
-      icon: "📑",
+      icon: "\uD83D\uDCD1",
       href: "/merge-pdf",
     },
     {
       title: "Split PDF",
       description: "Separate PDF pages into individual files.",
-      icon: "✂️",
+      icon: "\u2702\uFE0F",
       href: "/split-pdf",
     },
     {
       title: "Compress PDF",
       description: "Reduce PDF file size while keeping good quality.",
-      icon: "🗜️",
+      icon: "\uD83D\uDDDC\uFE0F",
       comingSoon: true,
     },
     {
       title: "PDF to JPG",
       description: "Convert PDF pages into high-quality JPG images.",
-      icon: "🖼️",
-      comingSoon: true,
+      icon: "\uD83D\uDDBC\uFE0F",
+      href: "/pdf-to-jpg",
     },
     {
       title: "JPG to PDF",
-      description: "Turn your images into a professional PDF document.",
-      icon: "📄",
-      comingSoon: true,
+      description: "Turn JPG, JPEG and PNG images into a professional PDF.",
+      icon: "\uD83D\uDCC4",
+      href: "/jpg-to-pdf",
+    },
+    {
+      title: "Rotate PDF",
+      description: "Rotate individual pages or your entire PDF document.",
+      icon: "\uD83D\uDD04",
+      href: "/rotate-pdf",
+    },
+    {
+      title: "Organize PDF",
+      description: "Reorder, remove and organize PDF pages visually.",
+      icon: "\uD83D\uDCCB",
+      href: "/organize-pdf",
+    },
+    {
+      title: "Protect PDF",
+      description: "Protect your PDF with secure password encryption.",
+      icon: "\uD83D\uDD10",
+      href: "/protect-pdf",
+    },
+    {
+      title: "Unlock PDF",
+      description: "Unlock password-protected PDFs or recover a forgotten password from clues.",
+      icon: "\uD83D\uDD13",
+      href: "/unlock-pdf",
     },
     {
       title: "Image Converter",
       description: "Convert JPG, PNG, WebP and other image formats.",
-      icon: "🔄",
+      icon: "\uD83D\uDD04",
       comingSoon: true,
     },
     {
       title: "Compress Image",
       description: "Reduce image size without noticeable quality loss.",
-      icon: "⚡",
+      icon: "\u26A1",
       comingSoon: true,
     },
     {
       title: "Resize Image",
       description: "Resize images quickly to the exact dimensions you need.",
-      icon: "↔️",
+      icon: "\u2194\uFE0F",
       comingSoon: true,
     },
   ];
@@ -100,7 +124,7 @@ export default function Home() {
       <section className="px-6 pb-16 pt-20 text-center">
         <div className="mx-auto max-w-4xl">
           <div className="mb-5 inline-flex rounded-full border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700">
-            Fast • Secure • Easy to use
+            Fast {"\u2022"} Secure {"\u2022"} Easy to use
           </div>
 
           <h1 className="text-4xl font-bold tracking-tight text-slate-950 md:text-6xl">
@@ -175,7 +199,7 @@ export default function Home() {
         </p>
 
         <div className="mt-5 text-sm font-semibold text-blue-600">
-          Open tool →
+          Open tool {"\u2192"}
         </div>
       </a>
     );
@@ -216,7 +240,7 @@ export default function Home() {
       <section className="border-y border-slate-200 bg-white px-6 py-20">
         <div className="mx-auto grid max-w-6xl gap-10 md:grid-cols-3">
           <div>
-            <div className="mb-4 text-3xl">🔒</div>
+            <div className="mb-4 text-3xl">{"\uD83D\uDD12"}</div>
             <h3 className="text-lg font-bold">Privacy first</h3>
             <p className="mt-2 text-sm leading-6 text-slate-600">
               Where possible, files are processed directly in your browser.
@@ -224,7 +248,7 @@ export default function Home() {
           </div>
 
           <div>
-            <div className="mb-4 text-3xl">⚡</div>
+            <div className="mb-4 text-3xl">{"\u26A1"}</div>
             <h3 className="text-lg font-bold">Fast processing</h3>
             <p className="mt-2 text-sm leading-6 text-slate-600">
               Modern browser technology keeps everyday tools quick and simple.
@@ -232,7 +256,7 @@ export default function Home() {
           </div>
 
           <div>
-            <div className="mb-4 text-3xl">✨</div>
+            <div className="mb-4 text-3xl">{"\u2728"}</div>
             <h3 className="text-lg font-bold">Easy to use</h3>
             <p className="mt-2 text-sm leading-6 text-slate-600">
               Clean interfaces designed for people who just want the job done.
@@ -240,13 +264,12 @@ export default function Home() {
           </div>
         </div>
       </section>
-
       {/* Footer */}
       <footer className="bg-slate-950 px-6 py-10 text-slate-400">
         <div className="mx-auto flex max-w-7xl flex-col gap-5 text-sm md:flex-row md:items-center md:justify-between">
           <div>
             <span className="font-bold text-white">PDF Tools</span>
-            <span className="ml-2">© 2026</span>
+            <span className="ml-2">{"\u00A9"} 2026</span>
           </div>
 
           <div className="flex flex-wrap gap-5">
