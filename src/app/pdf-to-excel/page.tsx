@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import { PDFDocument } from "pdf-lib";
+import type { Cell } from "exceljs";
 import {
   FileSpreadsheet,
   FileText,
@@ -29,6 +30,15 @@ type PdfRow = {
   y: number;
   items: PdfTextItem[];
 };
+
+type PdfOperatorValue =
+  | number
+  | ArrayLike<number>
+  | null
+  | undefined;
+
+type PdfOperatorArgs =
+  PdfOperatorValue[];
 
 export default function PdfToExcelPage() {
   const inputRef =
@@ -761,7 +771,7 @@ export default function PdfToExcelPage() {
         */
 
         const applyCellBorder = (
-          cell: any,
+          cell: Cell,
           side:
             | "top"
             | "bottom"
@@ -950,7 +960,10 @@ export default function PdfToExcelPage() {
             await page.getOperatorList();
 
           const OPS =
-            pdfjsLib.OPS as any;
+            pdfjsLib.OPS as Record<
+              string,
+              number
+            >;
 
           const identity = [
             1, 0, 0, 1, 0, 0,
@@ -1068,7 +1081,9 @@ export default function PdfToExcelPage() {
             const rawArgs =
               operatorList.argsArray[
                 operatorIndex
-              ] as any;
+              ] as
+                | PdfOperatorArgs
+                | undefined;
 
             if (
               fn === OPS.save
@@ -1151,7 +1166,9 @@ export default function PdfToExcelPage() {
                 !rawOperations ||
                 typeof rawOperations ===
                   "number" ||
-                !rawCoordinates
+                !rawCoordinates ||
+                typeof rawCoordinates ===
+                  "number"
               ) {
                 continue;
               }
