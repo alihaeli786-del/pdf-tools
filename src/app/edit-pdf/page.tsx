@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import {
   Type,
@@ -27,6 +28,8 @@ import {
   Italic,
   Move,
   Copy,
+  ALargeSmall,
+  Palette,
 } from "lucide-react";
 
 type TextBox = {
@@ -158,6 +161,7 @@ function PdfPagePreview({
 
   useEffect(() => {
     let cancelled = false;
+    let previewRenderTask: { promise: Promise<void>; cancel: () => void } | null = null;
 
     const renderPreview = async () => {
       const page = await pdfDoc.getPage(pageNumber);
@@ -181,6 +185,8 @@ function PdfPagePreview({
   viewport,
 });
 
+      previewRenderTask = renderTask;
+
       try {
         await renderTask.promise;
       } catch (err) {
@@ -194,6 +200,7 @@ function PdfPagePreview({
 
     return () => {
       cancelled = true;
+      previewRenderTask?.cancel();
     };
   }, [pdfDoc, pageNumber, scale]);
 
@@ -2553,7 +2560,7 @@ const loadedPdf = await pdfjsLib.getDocument({
       setPageCount(loadedPdf.numPages);
       setPageNumber(1);
 
-      setScale(2.3);
+      if (typeof window !== "undefined" && window.innerWidth < 768) { const firstPage = await loadedPdf.getPage(1); const baseViewport = firstPage.getViewport({ scale: 1 }); const mobileAvailableWidth = Math.max(window.innerWidth - 16, 280); setScale(Math.min(2.3, mobileAvailableWidth / baseViewport.width)); } else { setScale(2.3); }
       setRotation(0);
 
       setTextBoxes([]);
@@ -2573,6 +2580,7 @@ const loadedPdf = await pdfjsLib.getDocument({
     if (!pdfDoc || !canvasRef.current) return;
 
     let cancelled = false;
+    let previewRenderTask: { promise: Promise<void>; cancel: () => void } | null = null;
 
     let renderTask:
       | {
@@ -2652,7 +2660,53 @@ renderTask = page.render({
 
         if (cancelled) return;
 
-        const textContent = await page.getTextContent();
+        let textContent;
+
+        const isSafariLike =
+          typeof navigator !== "undefined" &&
+          /AppleWebKit/i.test(navigator.userAgent) &&
+          !/Chrome|Chromium|Edg/i.test(navigator.userAgent);
+
+        if (isSafariLike) {
+          const readableStream = page.streamTextContent();
+          const reader = readableStream.getReader();
+
+          const mergedTextContent = {
+            items: [] as typeof textContent extends { items: infer T } ? T : any[],
+            styles: {} as Record<string, any>,
+            lang: null as string | null,
+          };
+
+          try {
+            while (true) {
+              const { value, done } = await reader.read();
+
+              if (done) break;
+              if (!value) continue;
+
+              if (value.lang && !mergedTextContent.lang) {
+                mergedTextContent.lang = value.lang;
+              }
+
+              Object.assign(
+                mergedTextContent.styles,
+                value.styles ?? {}
+              );
+
+              if (Array.isArray(value.items)) {
+                mergedTextContent.items.push(
+                  ...value.items
+                );
+              }
+            }
+          } finally {
+            reader.releaseLock();
+          }
+
+          textContent = mergedTextContent;
+        } else {
+          textContent = await page.getTextContent();
+        }
 
         const pdfjsLib = await import("pdfjs-dist");
 
@@ -2773,7 +2827,65 @@ sourceItemIndexes: [index],
           }
         );
 
-        setTextBoxes(groupTextIntoLines(extractedText));
+        const groupedText = groupTextIntoLines(extractedText);
+
+        const isMobileEditor =
+          typeof window !== "undefined" &&
+          window.innerWidth < 768;
+
+        if (!isMobileEditor) {
+          setTextBoxes(groupedText);
+        } else {
+          const cleanedMobileText = groupedText.filter(
+            (box, index, allBoxes) => {
+              const boxText = box.text.trim();
+
+              if (!boxText) return false;
+
+              return !allBoxes.some((other, otherIndex) => {
+                if (otherIndex === index) return false;
+
+                const otherText = other.text.trim();
+
+                if (
+                  !otherText ||
+                  otherText.length <= boxText.length
+                ) {
+                  return false;
+                }
+
+                const sameLine =
+                  Math.abs(other.top - box.top) <=
+                  Math.max(other.height, box.height) * 0.45;
+
+                if (!sameLine) return false;
+
+                const boxRight = box.left + box.width;
+                const otherRight = other.left + other.width;
+
+                const overlap =
+                  Math.min(boxRight, otherRight) -
+                  Math.max(box.left, other.left);
+
+                const hasHorizontalOverlap =
+                  overlap >
+                  Math.min(box.width, other.width) * 0.35;
+
+                if (!hasHorizontalOverlap) return false;
+
+                const normalizedBox =
+                  boxText.replace(/\s+/g, " ");
+
+                const normalizedOther =
+                  otherText.replace(/\s+/g, " ");
+
+                return normalizedOther.includes(normalizedBox);
+              });
+            }
+          );
+
+          setTextBoxes(cleanedMobileText);
+        }
       } catch (err) {
         if (
           err instanceof Error &&
@@ -4956,7 +5068,7 @@ const shapeFillColor = hexToPdfRgb(shape.fillColor);
   }
 
   return (
-    <main className="flex min-h-screen flex-col bg-[#e9e9e9]">
+    <main className="flex min-h-screen w-full max-w-full flex-col overflow-x-hidden bg-[#e9e9e9] md:overflow-x-visible">
     <input
   ref={imageInputRef}
   type="file"
@@ -5705,14 +5817,13 @@ onPointerUp={stopSignatureDrawing}
   </div>
 )}
       <header className="border-b border-slate-200 bg-white">
-        <div className="flex min-h-16 items-center justify-between gap-4 px-4">
-          <div className="flex items-center gap-3">
+        <div className="flex min-h-16 w-full max-w-full items-center justify-between gap-2 px-2 md:gap-4 md:px-4">
+          <div className="flex min-w-0 flex-1 items-center gap-2 md:gap-3">
             <Link href="/" className="rounded-lg p-2 text-slate-600">
               <ChevronLeft size={20} />
             </Link>
 
-            <div>
-              <p className="max-w-64 truncate text-sm font-semibold">
+            <div className="min-w-0 flex-1"><p className="max-w-full truncate text-sm font-semibold md:max-w-64">
                 {file.name}
               </p>
 
@@ -5725,7 +5836,7 @@ onPointerUp={stopSignatureDrawing}
           <button
   onClick={applyChanges}
   disabled={exporting}
-  className={`flex items-center gap-2 rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 ${
+  className={`flex shrink-0 items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-2.5 text-xs font-semibold text-white transition hover:bg-blue-700 md:gap-2 md:px-5 md:text-sm ${
     exporting
       ? "cursor-not-allowed opacity-60"
       : ""
@@ -5740,8 +5851,8 @@ onPointerUp={stopSignatureDrawing}
         </div>
       </header>
 
-      <div className="sticky top-0 z-30 border-b bg-white px-3 py-2">
-        <div className="mx-auto flex max-w-[1500px] items-center justify-center gap-1">
+      <div className="sticky top-0 z-30 w-full max-w-full overflow-x-auto overscroll-x-contain border-b bg-white px-3 py-2 md:overflow-visible">
+        <div className="mx-auto flex w-max min-w-full items-center justify-start gap-1 md:max-w-[1500px] md:justify-center">
           {tools.map((tool) => {
             const Icon = tool.icon;
 
@@ -5954,56 +6065,56 @@ if (tool.label === "Shapes") {
         </div>
       </div>
 
-      <div className="border-b border-slate-300 bg-[#ededed] px-4 py-3">
-        <div className="flex items-center justify-center gap-2">
+      <div className="border-b border-slate-300 bg-[#ededed] px-2 py-2 md:px-4 md:py-3">
+        <div className="flex w-full flex-wrap items-center justify-center gap-1.5 md:flex-nowrap md:gap-2">
           <button
             onClick={previousPage}
             disabled={pageNumber <= 1}
-            className="rounded border border-blue-400 bg-white p-2"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-blue-400 bg-white p-0 text-slate-700 md:h-auto md:w-auto md:rounded md:p-2"
           >
             <ChevronLeft size={17} />
           </button>
 
-          <span className="px-4 text-sm font-semibold">
+          <span className="shrink-0 px-2 text-xs font-semibold md:px-4 md:text-sm">
             Page {pageNumber} / {pageCount}
           </span>
 
           <button
             onClick={nextPage}
             disabled={pageNumber >= pageCount}
-            className="rounded border border-blue-400 bg-white p-2"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-blue-400 bg-white p-0 text-slate-700 md:h-auto md:w-auto md:rounded md:p-2"
           >
             <ChevronRight size={17} />
           </button>
 
           <button
             onClick={zoomIn}
-            className="rounded border border-blue-400 bg-white p-2"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-blue-400 bg-white p-0 text-slate-700 md:h-auto md:w-auto md:rounded md:p-2"
           >
             <ZoomIn size={16} />
           </button>
 
           <button
             onClick={zoomOut}
-            className="rounded border border-blue-400 bg-white p-2"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-blue-400 bg-white p-0 text-slate-700 md:h-auto md:w-auto md:rounded md:p-2"
           >
             <ZoomOut size={16} />
           </button>
 
           <button
             onClick={rotatePage}
-            className="rounded border border-blue-400 bg-white p-2"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-blue-400 bg-white p-0 text-slate-700 md:h-auto md:w-auto md:rounded md:p-2"
           >
             <RotateCw size={16} />
           </button>
 
-          <span className="ml-2 text-xs font-semibold">
+          <span className="w-10 shrink-0 text-center text-[11px] font-semibold md:ml-2 md:w-auto md:text-xs">
             {Math.round(scale * 100)}%
           </span>
 
           <button
   onClick={() => insertPageAt(pageNumber, pageNumber)}
-  className="ml-3 flex items-center gap-2 rounded border border-blue-400 bg-white px-3 py-2 text-blue-600"
+  className="mt-1 flex h-9 w-full basis-full items-center justify-center gap-1.5 rounded-lg border border-blue-400 bg-white px-3 text-xs font-semibold text-blue-600 md:ml-3 md:mt-0 md:h-auto md:w-auto md:basis-auto md:rounded md:py-2 md:text-sm"
 >
             <Plus size={16} />
             Insert page here
@@ -6011,7 +6122,7 @@ if (tool.label === "Shapes") {
         </div>
       </div>
 
-      <section className="relative flex flex-1 flex-col items-center gap-2 overflow-auto p-8">
+      <section className="relative flex min-w-0 w-full max-w-full flex-1 flex-col items-start gap-2 overflow-auto overscroll-contain p-2 md:items-center md:p-8">
         {rendering && (
           <div className="fixed bottom-6 right-6 z-50 rounded bg-slate-900 px-4 py-2 text-sm text-white">
             Rendering page...
@@ -6098,6 +6209,22 @@ if (tool.label === "Shapes") {
     height: pageSize.height,
   }}
  onPointerDown={(event) => {
+  if (addTextMode && event.pointerType !== "mouse") {
+    event.preventDefault();
+
+    const rect =
+      event.currentTarget.getBoundingClientRect();
+
+    const x =
+      event.clientX - rect.left;
+
+    const y =
+      event.clientY - rect.top;
+
+    addNewTextAt(x, y);
+    return;
+  }
+
   startWhiteout(event);
   startAnnotate(event);
   startLinkArea(event);
@@ -6777,7 +6904,7 @@ onPointerUp={handleImageResizeEnd}
 
   return (
     <div
-      className="absolute z-50 flex items-center gap-1 rounded-md border border-slate-300 bg-white p-1 shadow-xl"
+      className="absolute z-50 flex max-w-[calc(100vw-16px)] flex-nowrap items-center justify-center gap-0.5 rounded-xl border border-slate-300 bg-white p-1 shadow-xl md:max-w-none md:justify-start md:gap-1 md:rounded-lg md:p-1"
       style={{
         left: selectedImageBox.left * imageScale,
         top: Math.max(5, selectedImageBox.top * imageScale - 42),
@@ -6813,14 +6940,17 @@ const y = selectedBox.top + (edit.offsetY ?? 0);
 
             return (
               <div
-                className="absolute z-50 flex items-center gap-1 rounded-md border border-slate-300 bg-white p-1 shadow-xl"
+                className="absolute z-50 flex max-w-[calc(100vw-16px)] flex-nowrap items-center justify-center gap-0.5 rounded-xl border border-slate-300 bg-white p-1 shadow-xl md:max-w-none md:justify-start md:gap-1 md:rounded-lg md:p-1"
                 style={{
-                  left: Math.max(
-                    5,
-                    Math.min(x, pageSize.width - 590)
-                  ),
-
-                  top: Math.max(5, y - 70),
+                  left:
+                    typeof window !== "undefined" && window.innerWidth < 768
+                      ? Math.max(5, Math.min(x - 140, pageSize.width - 320))
+                      : Math.max(5, Math.min(x, pageSize.width - 300)),
+                  right: undefined,
+                  top:
+                    typeof window !== "undefined" && window.innerWidth < 768
+                      ? (y < 60 ? y + selectedBox.height + 8 : Math.max(5, y - 48))
+                      : Math.max(5, y - 54),
                 }}
                 onMouseDown={(event) => event.stopPropagation()}
               >
@@ -6831,7 +6961,7 @@ const y = selectedBox.top + (edit.offsetY ?? 0);
                     })
                   }
                   className={`rounded p-2 ${
-                    edit.bold ? "bg-blue-100 text-blue-700" : ""
+                    edit.bold ? "bg-blue-100 text-blue-700" : "text-slate-800 md:text-inherit"
                   }`}
                   title="Bold"
                 >
@@ -6845,12 +6975,32 @@ const y = selectedBox.top + (edit.offsetY ?? 0);
                     })
                   }
                   className={`rounded p-2 ${
-                    edit.italic ? "bg-blue-100 text-blue-700" : ""
+                    edit.italic ? "bg-blue-100 text-blue-700" : "text-slate-800 md:text-inherit"
                   }`}
                   title="Italic"
                 >
                   <Italic size={15} />
                 </button>
+
+                <details className="relative shrink-0 md:hidden">
+                  <summary className="flex h-8 w-8 cursor-pointer list-none items-center justify-center rounded text-slate-600 hover:bg-blue-50 hover:text-blue-700 [&::-webkit-details-marker]:hidden" title="Font size">
+                    <ALargeSmall size={17} />
+                  </summary>
+                  <div className="absolute left-1/2 top-10 z-[60] -translate-x-1/2 rounded-lg border border-slate-200 bg-white p-2 shadow-xl">
+                    <input
+                      type="number"
+                      min="6"
+                      max="100"
+                      value={Math.round(edit.fontSize)}
+                      onChange={(event) =>
+                        updateEdit(selectedBox, {
+                          fontSize: Number(event.target.value),
+                        })
+                      }
+                      className="w-16 rounded border px-2 py-1.5 text-sm"
+                    />
+                  </div>
+                </details>
 
                 <input
                   type="number"
@@ -6862,9 +7012,53 @@ const y = selectedBox.top + (edit.offsetY ?? 0);
                       fontSize: Number(event.target.value),
                     })
                   }
-                  className="w-14 rounded border px-2 py-1.5 text-sm"
+                  className="hidden w-14 shrink-0 rounded border px-2 py-1.5 text-sm md:block"
                   title="Font size"
                 />
+
+                <details className="relative shrink-0 md:hidden">
+                  <summary className="flex h-8 w-8 cursor-pointer list-none items-center justify-center rounded text-slate-600 hover:bg-blue-50 hover:text-blue-700 [&::-webkit-details-marker]:hidden" title="Font family">
+                    <Type size={17} />
+                  </summary>
+                  <div className="absolute left-1/2 top-10 z-[60] -translate-x-1/2 rounded-lg border border-slate-200 bg-white p-2 shadow-xl">
+                <select
+  value={edit.fontFamily}
+  onChange={(event) =>
+    updateEdit(selectedBox, {
+      fontFamily: event.target.value,
+    })
+  }
+  className="w-40 rounded border px-2 py-1.5 text-sm"
+  title="Font family"
+  style={{
+    fontFamily: edit.fontFamily,
+  }}
+>
+  <option
+    value={selectedBox.fontFamily}
+    style={{
+      fontFamily: selectedBox.fontFamily,
+    }}
+  >
+    {selectedBox.fontFamily}
+  </option>
+
+  {fontOptions
+    .filter((font) => font !== selectedBox.fontFamily)
+    .map((font) => (
+      <option
+        key={font}
+        value={font}
+        style={{
+          fontFamily: font,
+        }}
+      >
+        {font}
+      </option>
+    ))}
+</select>
+                  </div>
+                </details>
 
                 <select
   value={edit.fontFamily}
@@ -6873,7 +7067,7 @@ const y = selectedBox.top + (edit.offsetY ?? 0);
       fontFamily: event.target.value,
     })
   }
-  className="w-48 rounded border px-2 py-1.5 text-sm"
+  className="hidden w-48 shrink-0 rounded border px-2 py-1.5 text-sm md:block"
   title="Font family"
   style={{
     fontFamily: edit.fontFamily,
@@ -6903,6 +7097,20 @@ const y = selectedBox.top + (edit.offsetY ?? 0);
     ))}
 </select>
 
+                <label className="relative flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded text-slate-600 hover:bg-blue-50 hover:text-blue-700 md:hidden" title="Text color">
+                  <Palette size={17} />
+                  <input
+                    type="color"
+                    value={edit.color}
+                    onChange={(event) =>
+                      updateEdit(selectedBox, {
+                        color: event.target.value,
+                      })
+                    }
+                    className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                  />
+                </label>
+
                 <input
                   type="color"
                   value={edit.color}
@@ -6911,14 +7119,14 @@ const y = selectedBox.top + (edit.offsetY ?? 0);
                       color: event.target.value,
                     })
                   }
-                  className="h-8 w-8 cursor-pointer"
+                  className="hidden h-8 w-8 shrink-0 cursor-pointer md:block"
                   title="Text color"
                 />
 
                 <button
                   onClick={createLink}
                   className={`rounded p-2 ${
-                    edit.link ? "bg-blue-100 text-blue-700" : ""
+                    edit.link ? "bg-blue-100 text-blue-700" : "text-slate-800 md:text-inherit"
                   }`}
                   title="Create link"
                 >
@@ -6928,7 +7136,7 @@ const y = selectedBox.top + (edit.offsetY ?? 0);
                 <button
                   onClick={() => setMoveMode((current) => !current)}
                   className={`rounded p-2 ${
-                    moveMode ? "bg-blue-100 text-blue-700" : ""
+                    moveMode ? "bg-blue-100 text-blue-700" : "text-slate-800 md:text-inherit"
                   }`}
                   title="Move text"
                 >
@@ -6998,6 +7206,14 @@ const measuredTextBox = measureTextBox(
 const originalItalic =
   /(Italic|Oblique)/i.test(box.fontName);
 
+const originalMeasuredTextBox = measureTextBox(
+  box.text,
+  box.fontSize,
+  box.fontFamily,
+  originalBold,
+  originalItalic
+);
+
 const hasChanged =
   !!edit &&
   (
@@ -7017,17 +7233,38 @@ const hasChanged =
 
   return (
     <div key={box.id} className="contents">
-
-      {/* PERMANENT MASK OVER ORIGINAL PDF TEXT */}
+{/* PERMANENT MASK OVER ORIGINAL PDF TEXT */}
       {shouldMaskOriginal && (
         <div
           className="pointer-events-none absolute z-20"
           style={{
-            left: box.left - 2,
-            top: box.top - 1,
+            left:
+              typeof window !== "undefined" && window.innerWidth < 768
+                ? box.left - 2
+                : box.left - 2,
+            top:
+              typeof window !== "undefined" && window.innerWidth < 768
+                ? box.top - 1
+                : box.top - 1,
 
-            width: Math.max(box.width + 6, 14),
-            height: Math.max(box.height * 1.25, 14),
+            width:
+              typeof window !== "undefined" && window.innerWidth < 768
+                ? Math.max(
+                    box.width,
+                    originalMeasuredTextBox.width,
+                    measuredTextBox.width,
+                    8
+                  ) + 6
+                : Math.max(box.width + 6, 14),
+            height:
+              typeof window !== "undefined" && window.innerWidth < 768
+                ? Math.max(
+                    box.height,
+                    originalMeasuredTextBox.height,
+                    measuredTextBox.height,
+                    8
+                  ) + 2
+                : Math.max(box.height * 1.25, 14),
 
             backgroundColor: box.backgroundColor,
 
@@ -7042,6 +7279,23 @@ const hasChanged =
       {edit?.deleted && !isSelected && (
         <button
           type="button"
+          onPointerDown={(event) => {
+            if (event.pointerType === "mouse") return;
+
+            event.preventDefault();
+            event.stopPropagation();
+
+            flushSync(() => {
+              startEditing(box);
+            });
+
+            requestAnimationFrame(() => {
+              const textarea =
+                document.querySelector<HTMLTextAreaElement>(`textarea[data-text-box-id="${box.id}"]`)
+
+              textarea?.focus();
+            });
+          }}
           onMouseDown={(event) => event.stopPropagation()}
           onClick={(event) => {
             event.stopPropagation();
@@ -7065,6 +7319,7 @@ const hasChanged =
       {/* CURRENTLY EDITING */}
       {isSelected && (
         <textarea
+          data-text-box-id={box.id}
           autoFocus
           onMouseDown={(event) => {
   event.stopPropagation();
@@ -7363,14 +7618,37 @@ if (bestY) {
             left,
             top,
 
-            width: measuredTextBox.width,
-height: measuredTextBox.height,
-minWidth: measuredTextBox.width,
-minHeight: measuredTextBox.height,
+            width:
+              typeof window !== "undefined" &&
+              window.innerWidth < 768 &&
+              activeEdit.fontSize < 16
+                ? measuredTextBox.width * (16 / activeEdit.fontSize)
+                : measuredTextBox.width,
+            height:
+              typeof window !== "undefined" &&
+              window.innerWidth < 768 &&
+              activeEdit.fontSize < 16
+                ? measuredTextBox.height * (16 / activeEdit.fontSize)
+                : measuredTextBox.height,
+            minWidth:
+              typeof window !== "undefined" &&
+              window.innerWidth < 768 &&
+              activeEdit.fontSize < 16
+                ? measuredTextBox.width * (16 / activeEdit.fontSize)
+                : measuredTextBox.width,
+            minHeight:
+              typeof window !== "undefined" &&
+              window.innerWidth < 768 &&
+              activeEdit.fontSize < 16
+                ? measuredTextBox.height * (16 / activeEdit.fontSize)
+                : measuredTextBox.height,
 
             fontFamily: activeEdit.fontFamily,
 
-            fontSize: activeEdit.fontSize,
+            fontSize:
+              typeof window !== "undefined" && window.innerWidth < 768
+                ? Math.max(activeEdit.fontSize, 16)
+                : activeEdit.fontSize,
 
             fontWeight:
               activeEdit.bold ? 700 : 400,
@@ -7386,7 +7664,12 @@ minHeight: measuredTextBox.height,
 
             backgroundColor: "transparent",
 
-            transform: `rotate(${box.angle}deg)`,
+            transform:
+              typeof window !== "undefined" &&
+              window.innerWidth < 768 &&
+              activeEdit.fontSize < 16
+                ? `rotate(${box.angle}deg) scale(${activeEdit.fontSize / 16})`
+                : `rotate(${box.angle}deg)`,
 
             transformOrigin: "0 0",
 
