@@ -5851,7 +5851,7 @@ onPointerUp={stopSignatureDrawing}
         </div>
       </header>
 
-      <div className="sticky top-0 z-30 w-full max-w-full overflow-x-auto overscroll-x-contain border-b bg-white px-3 py-2 md:overflow-visible">
+      <div className={`sticky top-0 z-[150] w-full max-w-full md:z-30 border-b bg-white px-3 py-2 md:overflow-visible ${showFormsMenu ? "overflow-visible" : "overflow-x-auto overscroll-x-contain"}`}> 
         <div className="mx-auto flex w-max min-w-full items-center justify-start gap-1 md:max-w-[1500px] md:justify-center">
           {tools.map((tool) => {
             const Icon = tool.icon;
@@ -5859,8 +5859,39 @@ onPointerUp={stopSignatureDrawing}
             return (
             <div key={tool.label} className="relative">  
               <button
-                
+              onPointerDown={(event) => {
+                if (tool.label === "Forms" && typeof window !== "undefined" && window.innerWidth < 768) {
+                  event.preventDefault();
+                  event.stopPropagation();
+
+                  setShowShapesMenu(false);
+                  setShowFormsMenu((current) => !current);
+                  setAddTextMode(false);
+                  setWhiteoutMode(false);
+                  setAnnotateMode(false);
+                  setLinkAreaMode(false);
+                  setSelectedTextId(null);
+                  setSelectedImageId(null);
+                  setSelectedWhiteoutId(null);
+                  setSelectedAnnotateId(null);
+                  setSelectedLinkBoxId(null);
+                }
+
+                if (tool.label === "Shapes" && typeof window !== "undefined" && window.innerWidth < 768) {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setShowFormsMenu(false);
+                  setShowShapesMenu((current) => !current);
+                  setAddTextMode(false);
+                  setWhiteoutMode(false);
+                  setAnnotateMode(false);
+                  setLinkAreaMode(false);
+                  setFormFieldMode(null);
+                }
+              }}
+
                 onClick={() => {
+  if ((tool.label === "Forms" || tool.label === "Shapes") && typeof window !== "undefined" && window.innerWidth < 768) return;
   if (tool.label === "Text") {
     setAddTextMode((current) => !current);
     setWhiteoutMode(false);
@@ -5902,6 +5933,7 @@ if (tool.label === "Links") {
   setSelectedAnnotateId(null);
 }
 if (tool.label === "Forms") {
+  setShowShapesMenu(false);
   setShowFormsMenu((current) => !current);
 
   setAddTextMode(false);
@@ -5951,7 +5983,7 @@ if (tool.label === "Shapes") {
                 {tool.label}
               </button>
               {tool.label === "Forms" && showFormsMenu && (
-  <div className="absolute left-0 top-full z-[100] mt-2 w-64 rounded-lg border border-slate-200 bg-white p-2 shadow-xl">
+  <div className="fixed left-3 right-3 top-[118px] z-[100] max-h-[60vh] overflow-y-auto rounded-lg border border-slate-200 bg-white p-2 shadow-xl md:absolute md:left-0 md:right-auto md:top-full md:mt-2 md:w-64 md:max-h-none md:overflow-visible">
     <div className="px-3 py-2 text-xs font-semibold uppercase text-slate-400">
       Add new form fields
     </div>
@@ -6008,7 +6040,7 @@ if (tool.label === "Shapes") {
   </div>
 )}
 {tool.label === "Shapes" && showShapesMenu && (
-  <div className="absolute left-0 top-full z-[100] mt-2 w-56 rounded-lg border border-slate-200 bg-white p-2 shadow-xl">
+  <div className="hidden md:absolute md:left-0 md:top-full md:z-[100] md:mt-2 md:block md:w-56 md:rounded-lg md:border md:border-slate-200 md:bg-white md:p-2 md:shadow-xl">
     <div className="px-3 py-2 text-xs font-semibold uppercase text-slate-400">
       Add shape
     </div>
@@ -6064,6 +6096,16 @@ if (tool.label === "Shapes") {
           <Redo2 size={18} className="text-blue-600" />
         </div>
       </div>
+
+      {showShapesMenu && (
+        <div className="fixed left-3 right-3 top-[118px] z-[300] max-h-[60vh] overflow-y-auto rounded-lg border border-slate-200 bg-white p-2 shadow-xl md:hidden">
+          <div className="px-3 py-2 text-xs font-semibold uppercase text-slate-400">Add shape</div>
+          <button onClick={() => { setShapeMode("rectangle"); setShowShapesMenu(false); }} className="w-full rounded-md px-3 py-2 text-left text-sm text-slate-700">Rectangle</button>
+          <button onClick={() => { setShapeMode("circle"); setShowShapesMenu(false); }} className="w-full rounded-md px-3 py-2 text-left text-sm text-slate-700">Circle</button>
+          <button onClick={() => { setShapeMode("line"); setShowShapesMenu(false); }} className="w-full rounded-md px-3 py-2 text-left text-sm text-slate-700">Line</button>
+          <button onClick={() => { setShapeMode("arrow"); setShowShapesMenu(false); }} className="w-full rounded-md px-3 py-2 text-left text-sm text-slate-700">Arrow</button>
+        </div>
+      )}
 
       <div className="border-b border-slate-300 bg-[#ededed] px-2 py-2 md:px-4 md:py-3">
         <div className="flex w-full flex-wrap items-center justify-center gap-1.5 md:flex-nowrap md:gap-2">
@@ -6207,6 +6249,12 @@ if (tool.label === "Shapes") {
   style={{
     width: pageSize.width,
     height: pageSize.height,
+    touchAction:
+      typeof window !== "undefined" &&
+      window.innerWidth < 768 &&
+      (linkAreaMode || formFieldMode !== null || whiteoutMode || annotateMode || shapeMode !== null)
+        ? "none"
+        : "auto",
   }}
  onPointerDown={(event) => {
   if (addTextMode && event.pointerType !== "mouse") {
@@ -6295,6 +6343,11 @@ setMoveMode(false);
     top: box.top * whiteoutScale,
     width: box.width * whiteoutScale,
     height: box.height * whiteoutScale,
+    touchAction:
+      typeof window !== "undefined" &&
+      window.innerWidth < 768
+        ? "none"
+        : "auto",
   }}
 />
     );
@@ -6358,6 +6411,11 @@ setMoveMode(false);
     width: box.width * annotateScale,
     height: box.height * annotateScale,
     backgroundColor: "rgba(250, 204, 21, 0.35)",
+    touchAction:
+      typeof window !== "undefined" &&
+      window.innerWidth < 768
+        ? "none"
+        : "auto",
   }}
 />
     );
@@ -6429,6 +6487,11 @@ onPointerUp={endFormFieldMove}
           top: field.top * fieldScale,
           width,
           height,
+          touchAction:
+            typeof window !== "undefined" &&
+            window.innerWidth < 768
+              ? "none"
+              : "auto",
         }}
         onClick={(event) => {
           event.stopPropagation();
@@ -6536,6 +6599,7 @@ onPointerUp={endShapeMove}
             height: 2,
             transform: `rotate(${angle}deg)`,
             transformOrigin: "0 50%",
+            touchAction: typeof window !== "undefined" && window.innerWidth < 768 ? "none" : "auto",
           }}
           onClick={(event) => {
   event.stopPropagation();
@@ -6622,6 +6686,7 @@ onPointerUp={endShapeMove}
   borderWidth: shape.strokeWidth,
   backgroundColor: shape.fillColor,
   opacity: shape.opacity,
+  touchAction: typeof window !== "undefined" && window.innerWidth < 768 ? "none" : "auto",
 }}
     >
   {selectedShapeId === shape.id && (
@@ -6680,6 +6745,7 @@ onPointerUp={endShapeMove}
             height: 2,
             transform: `rotate(${angle}deg)`,
             transformOrigin: "0 50%",
+            touchAction: typeof window !== "undefined" && window.innerWidth < 768 ? "none" : "auto",
           }}
         >
           <div className="h-[2px] w-full bg-blue-500" />
@@ -6821,6 +6887,11 @@ onPointerUp={(event) => {
           top: imageBox.top * imageScale,
           width: imageBox.width * imageScale,
           height: imageBox.height * imageScale,
+          touchAction:
+            typeof window !== "undefined" &&
+            window.innerWidth < 768
+              ? "none"
+              : "auto",
         }}
       />
     );
@@ -6841,6 +6912,11 @@ onPointerUp={(event) => {
           (selectedImageBox.top + selectedImageBox.height) *
             imageScale -
           8,
+        touchAction:
+          typeof window !== "undefined" &&
+          window.innerWidth < 768
+            ? "none"
+            : "auto",
       }}
       onPointerDown={handleImageResizeStart}
 onPointerMove={handleImageResizeMove}
@@ -6890,7 +6966,17 @@ onPointerUp={handleImageResizeEnd}
       onPointerDown={(event) => event.stopPropagation()}
     >
       <button
-        onClick={deleteSelectedWhiteout}
+        onPointerDown={(event) => {
+          if (typeof window !== "undefined" && window.innerWidth < 768) {
+            event.preventDefault();
+            event.stopPropagation();
+            deleteSelectedWhiteout();
+          }
+        }}
+        onClick={(event) => {
+          if (typeof window !== "undefined" && window.innerWidth < 768) return;
+          deleteSelectedWhiteout();
+        }}
         className="rounded-md px-3 py-1.5 text-sm text-red-600 hover:bg-red-50"
         title="Delete whiteout"
       >
