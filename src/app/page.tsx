@@ -123,31 +123,20 @@ export default function Home() {
         <a
           key={tool.title}
           href={tool.href}
-          className="group relative flex h-full flex-col rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition duration-200 hover:-translate-y-1 hover:border-violet-200 hover:shadow-[0_18px_45px_rgba(15,23,42,0.10)] sm:p-6"
+          className="group relative flex min-h-[210px] flex-col rounded-[18px] border border-slate-200 bg-white p-5 text-left transition duration-200 hover:border-slate-300 hover:shadow-[0_10px_28px_rgba(15,23,42,0.07)]"
         >
-          {tool.popular && (
-            <span className="absolute right-3 top-3 rounded-full bg-violet-100 px-2.5 py-1 text-[10px] font-black tracking-wide text-violet-700 sm:right-4 sm:top-4 sm:px-3 sm:text-xs">
-              POPULAR
-            </span>
-          )}
 
-          <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-slate-100 text-xl transition group-hover:bg-violet-50 sm:mb-5 sm:h-12 sm:w-12 sm:text-2xl">
+          <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-xl border border-slate-100 bg-slate-50 text-2xl transition group-hover:border-violet-100 group-hover:bg-violet-50">
             {tool.icon}
           </div>
 
-          <h3 className="pr-1 text-base font-black text-slate-900 sm:text-lg">
+          <h3 className="pr-1 text-[17px] font-extrabold tracking-tight text-slate-900 sm:text-lg">
             {tool.title}
           </h3>
 
-          <p className="mt-2 text-xs leading-5 text-slate-600 sm:text-sm sm:leading-6">
+          <p className="mt-2 text-sm leading-6 text-slate-500">
             {tool.description}
           </p>
-
-          <div className="mt-auto pt-5">
-            <span className="inline-flex w-full items-center justify-center rounded-xl bg-gradient-to-r from-violet-600 to-blue-600 px-3 py-2.5 text-xs font-bold text-white shadow-sm transition group-hover:shadow-md sm:px-4 sm:text-sm">
-              Open tool
-            </span>
-          </div>
         </a>
       );
     }
@@ -165,11 +154,11 @@ export default function Home() {
           {tool.icon}
         </div>
 
-        <h3 className="pr-1 text-base font-black text-slate-900 sm:text-lg">
+        <h3 className="pr-1 text-[17px] font-extrabold tracking-tight text-slate-900 sm:text-lg">
           {tool.title}
         </h3>
 
-        <p className="mt-2 text-xs leading-5 text-slate-600 sm:text-sm sm:leading-6">
+        <p className="mt-2 text-sm leading-6 text-slate-500">
           {tool.description}
         </p>
 
@@ -189,23 +178,7 @@ export default function Home() {
 
         <div className="mx-auto flex h-[72px] max-w-7xl items-center justify-between px-5 lg:px-6">
 
-          <a href="/" className="flex min-w-0 items-center gap-3">
-
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-violet-600 to-blue-600 text-lg font-black text-white shadow-[0_8px_24px_rgba(99,102,241,0.25)]">
-              P
-            </div>
-
-            <div className="min-w-0">
-              <div className="text-[17px] font-black tracking-tight text-slate-950">
-                PDF Tools
-              </div>
-
-              <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">
-                Documents & Images
-              </div>
-            </div>
-
-          </a>
+          <a href="/" className="flex shrink-0 items-center"><img src="/toolijo-logo.png" alt="Toolijo" className="h-10 w-auto max-w-[190px] object-contain" /></a>
 
 
           {/* Desktop Navigation */}
@@ -335,9 +308,9 @@ export default function Home() {
       </header>
 
       {/* Premium Hero */}
-      <section className="relative z-20 overflow-visible px-5 pb-20 pt-16 md:pb-24 md:pt-20">
+      <section className="relative z-20 overflow-visible px-5 pb-14 pt-10 md:pb-16 md:pt-14">
 
-        <div className="pointer-events-none absolute left-1/2 top-[-260px] h-[620px] w-[900px] -translate-x-1/2 rounded-full bg-violet-200/30 blur-[100px]" />
+        <div className="pointer-events-none absolute left-1/2 top-[-300px] h-[720px] w-[1050px] -translate-x-1/2 rounded-full bg-gradient-to-r from-violet-200/45 via-indigo-100/40 to-blue-200/45 blur-[110px]" />
 
         <div className="pointer-events-none absolute right-[-170px] top-[180px] h-[380px] w-[380px] rounded-full bg-blue-200/30 blur-[100px]" />
 
@@ -348,29 +321,27 @@ export default function Home() {
 
             <span className="h-2 w-2 rounded-full bg-emerald-500" />
 
-            Fast, private and easy to use
+            Modern file tools. Built for speed.
 
           </div>
 
 
-          <h1 className="mx-auto mt-7 max-w-4xl text-5xl font-black tracking-[-0.045em] text-slate-950 md:text-7xl md:leading-[1.02]">
+          <h1 className="mx-auto mt-5 max-w-5xl text-4xl font-black tracking-[-0.045em] text-slate-950 md:text-6xl md:leading-[1.04]">
 
-            All your document and image tools.
+            Everything you need to work with files.
 
             <span className="mt-2 block bg-gradient-to-r from-violet-600 via-indigo-600 to-blue-600 bg-clip-text text-transparent">
-              One powerful workspace.
+              Fast. Simple. All in one place.
             </span>
 
           </h1>
 
 
-          <p className="mx-auto mt-7 max-w-2xl text-base leading-7 text-slate-600 md:text-lg md:leading-8">
-            Edit, convert, organize and secure PDFs. Convert, compress and resize images with fast tools designed to get the job done.
+          <p className="mx-auto mt-5 max-w-2xl text-base leading-7 text-slate-600 md:text-lg md:leading-8">
+            Edit, convert, organize and secure PDFs, Word documents and images with a growing collection of fast, focused tools designed for everyday work.
           </p>
-
-
-          {/* Working Search */}
-          <div ref={searchBoxRef} className="relative mx-auto mt-9 max-w-2xl text-left">
+{/* Working Search */}
+          <div ref={searchBoxRef} className="relative mx-auto mt-7 max-w-2xl text-left">
 
             <div className="relative rounded-[22px] border border-slate-200 bg-white p-2 shadow-[0_18px_60px_rgba(15,23,42,0.12)] transition focus-within:border-violet-300 focus-within:shadow-[0_22px_70px_rgba(99,102,241,0.16)]">
 
@@ -387,7 +358,7 @@ export default function Home() {
                   setSearchOpen(true);
                 }}
                 onFocus={() => setSearchOpen(true)}
-                placeholder="Search tools... Try: crop, resize, Excel, password"
+                placeholder="Search tools... Try: Word to PDF, crop, resize, password"
                 className="h-14 w-full rounded-2xl bg-transparent pl-14 pr-5 text-[15px] font-semibold text-slate-900 outline-none placeholder:font-medium placeholder:text-slate-400"
               />
 
@@ -488,17 +459,17 @@ export default function Home() {
           </div>
 
 
-          <div className="mt-6 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs font-semibold text-slate-500">
+          <div className="mt-4 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs font-semibold text-slate-500">
 
-            <span>No complicated software</span>
-
-            <span className="hidden h-1 w-1 rounded-full bg-slate-300 sm:block" />
-
-            <span>Browser-first processing</span>
+            <span>No complicated setup</span>
 
             <span className="hidden h-1 w-1 rounded-full bg-slate-300 sm:block" />
 
-            <span>19 tools and growing</span>
+            <span>Fast, focused workflows</span>
+
+            <span className="hidden h-1 w-1 rounded-full bg-slate-300 sm:block" />
+
+            <span>{allTools.length} tools and growing</span>
 
           </div>
 
@@ -509,8 +480,8 @@ export default function Home() {
       <div id="all-tools" className="scroll-mt-24" />
 
       {/* Popular Tools */}
-      <section id="popular-tools" className="px-5 pb-20 md:px-6 md:pb-24">
-        <div className="mx-auto max-w-7xl">
+      <section id="popular-tools" className="px-4 pb-20 md:px-5 md:pb-24">
+        <div className="mx-auto max-w-[1800px]">
 
           <div className="mb-8 flex flex-col items-center justify-between gap-4 text-center md:flex-row md:text-left">
             <div>
@@ -533,7 +504,7 @@ export default function Home() {
           </div>
 
 
-          <div className="grid grid-cols-2 gap-3 sm:gap-5 lg:grid-cols-3">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 lg:gap-4">
             {popularTools.map((tool) => renderToolCard(tool))}
           </div>
 
@@ -544,9 +515,9 @@ export default function Home() {
       {/* PDF Tools */}
       <section
         id="pdf-tools"
-        className="border-y border-slate-200/80 bg-white/70 px-5 py-20 md:px-6 md:py-24"
+        className="border-y border-slate-200/80 bg-white/70 px-4 py-20 md:px-5 md:py-24"
       >
-        <div className="mx-auto max-w-7xl">
+        <div className="mx-auto max-w-[1800px]">
 
           <div className="mb-8 flex flex-col items-center justify-between gap-4 text-center md:flex-row md:text-left">
             <div>
@@ -594,7 +565,7 @@ export default function Home() {
           </div>
 
 
-          <div className="grid grid-cols-2 gap-3 sm:gap-5 lg:grid-cols-3">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 lg:gap-4">
             {filteredPdfTools.map((tool) => renderToolCard(tool))}
           </div>
 
@@ -605,9 +576,9 @@ export default function Home() {
       {/* Image Tools */}
       <section
         id="image-tools"
-        className="px-5 py-20 md:px-6 md:py-24"
+        className="px-4 py-20 md:px-5 md:py-24"
       >
-        <div className="mx-auto max-w-7xl">
+        <div className="mx-auto max-w-[1800px]">
 
           <div className="mb-8 flex flex-col items-center justify-between gap-4 text-center md:flex-row md:text-left">
             <div>
@@ -630,7 +601,7 @@ export default function Home() {
           </div>
 
 
-          <div className="grid grid-cols-2 gap-3 sm:gap-5 lg:grid-cols-3">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 lg:gap-4">
             {imageTools.map((tool) => renderToolCard(tool))}
           </div>
 
@@ -662,7 +633,7 @@ export default function Home() {
 
           <div className="mt-12 grid gap-4 md:grid-cols-2">
 
-            <details className="group rounded-[22px] border border-slate-200 bg-slate-50/70 p-5 transition open:border-violet-200 open:bg-violet-50/40">
+            <details className="group rounded-[22px] border border-violet-100 bg-gradient-to-r from-violet-50/70 via-white to-blue-50/60 p-5 transition duration-200 hover:border-violet-200 hover:shadow-[0_8px_24px_rgba(99,102,241,0.08)] open:border-violet-300 open:from-violet-50 open:to-blue-50">
               <summary className="flex cursor-pointer list-none items-center justify-between gap-4 font-black text-slate-900">
                 Are the tools free to use?
 
@@ -678,7 +649,7 @@ export default function Home() {
             </details>
 
 
-            <details className="group rounded-[22px] border border-slate-200 bg-slate-50/70 p-5 transition open:border-violet-200 open:bg-violet-50/40">
+            <details className="group rounded-[22px] border border-violet-100 bg-gradient-to-r from-violet-50/70 via-white to-blue-50/60 p-5 transition duration-200 hover:border-violet-200 hover:shadow-[0_8px_24px_rgba(99,102,241,0.08)] open:border-violet-300 open:from-violet-50 open:to-blue-50">
               <summary className="flex cursor-pointer list-none items-center justify-between gap-4 font-black text-slate-900">
                 Do I need to create an account?
 
@@ -694,7 +665,7 @@ export default function Home() {
             </details>
 
 
-            <details className="group rounded-[22px] border border-slate-200 bg-slate-50/70 p-5 transition open:border-violet-200 open:bg-violet-50/40">
+            <details className="group rounded-[22px] border border-violet-100 bg-gradient-to-r from-violet-50/70 via-white to-blue-50/60 p-5 transition duration-200 hover:border-violet-200 hover:shadow-[0_8px_24px_rgba(99,102,241,0.08)] open:border-violet-300 open:from-violet-50 open:to-blue-50">
               <summary className="flex cursor-pointer list-none items-center justify-between gap-4 font-black text-slate-900">
                 How are my files processed?
 
@@ -710,7 +681,7 @@ export default function Home() {
             </details>
 
 
-            <details className="group rounded-[22px] border border-slate-200 bg-slate-50/70 p-5 transition open:border-violet-200 open:bg-violet-50/40">
+            <details className="group rounded-[22px] border border-violet-100 bg-gradient-to-r from-violet-50/70 via-white to-blue-50/60 p-5 transition duration-200 hover:border-violet-200 hover:shadow-[0_8px_24px_rgba(99,102,241,0.08)] open:border-violet-300 open:from-violet-50 open:to-blue-50">
               <summary className="flex cursor-pointer list-none items-center justify-between gap-4 font-black text-slate-900">
                 Can I use the tools on mobile?
 
@@ -726,7 +697,7 @@ export default function Home() {
             </details>
 
 
-            <details className="group rounded-[22px] border border-slate-200 bg-slate-50/70 p-5 transition open:border-violet-200 open:bg-violet-50/40">
+            <details className="group rounded-[22px] border border-violet-100 bg-gradient-to-r from-violet-50/70 via-white to-blue-50/60 p-5 transition duration-200 hover:border-violet-200 hover:shadow-[0_8px_24px_rgba(99,102,241,0.08)] open:border-violet-300 open:from-violet-50 open:to-blue-50">
               <summary className="flex cursor-pointer list-none items-center justify-between gap-4 font-black text-slate-900">
                 Which file formats are supported?
 
@@ -742,7 +713,7 @@ export default function Home() {
             </details>
 
 
-            <details className="group rounded-[22px] border border-slate-200 bg-slate-50/70 p-5 transition open:border-violet-200 open:bg-violet-50/40">
+            <details className="group rounded-[22px] border border-violet-100 bg-gradient-to-r from-violet-50/70 via-white to-blue-50/60 p-5 transition duration-200 hover:border-violet-200 hover:shadow-[0_8px_24px_rgba(99,102,241,0.08)] open:border-violet-300 open:from-violet-50 open:to-blue-50">
               <summary className="flex cursor-pointer list-none items-center justify-between gap-4 font-black text-slate-900">
                 Will more tools be added?
 
@@ -764,18 +735,18 @@ export default function Home() {
       </section>
 
       {/* Why Our Tools */}
-      <section className="relative overflow-hidden border-t border-slate-200 bg-slate-950 px-5 py-20 text-white md:px-6 md:py-24">
+      <section className="relative overflow-hidden border-t border-slate-200 bg-gradient-to-b from-white via-violet-50/40 to-slate-50 px-5 py-20 text-slate-900 md:px-6 md:py-24">
 
-        <div className="pointer-events-none absolute left-[-140px] top-[-140px] h-[420px] w-[420px] rounded-full bg-violet-600/20 blur-[110px]" />
+        <div className="pointer-events-none absolute left-[-140px] top-[-140px] h-[420px] w-[420px] rounded-full bg-violet-200/55 blur-[110px]" />
 
-        <div className="pointer-events-none absolute bottom-[-160px] right-[-100px] h-[420px] w-[420px] rounded-full bg-blue-600/20 blur-[110px]" />
+        <div className="pointer-events-none absolute bottom-[-160px] right-[-100px] h-[420px] w-[420px] rounded-full bg-blue-200/55 blur-[110px]" />
 
 
         <div className="relative mx-auto max-w-7xl">
 
           <div className="mx-auto max-w-3xl text-center">
 
-            <div className="inline-flex rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-black uppercase tracking-[0.14em] text-violet-300">
+            <div className="inline-flex rounded-full border border-violet-200 bg-white px-4 py-2 text-xs font-black uppercase tracking-[0.14em] text-violet-700">
               Built for simplicity
             </div>
 
@@ -783,7 +754,7 @@ export default function Home() {
               Powerful tools without the complicated workflow.
             </h2>
 
-            <p className="mx-auto mt-5 max-w-2xl text-sm leading-7 text-slate-400 md:text-base">
+            <p className="mx-auto mt-5 max-w-2xl text-sm leading-7 text-slate-600 md:text-base">
               Straightforward document and image tools designed to help you finish everyday file tasks quickly.
             </p>
 
@@ -792,9 +763,9 @@ export default function Home() {
 
           <div className="mt-12 grid gap-4 md:grid-cols-3">
 
-            <div className="rounded-[26px] border border-white/10 bg-white/[0.055] p-6 backdrop-blur">
+            <div className="rounded-[26px] border border-slate-200 bg-white p-6 shadow-[0_10px_30px_rgba(15,23,42,0.06)]">
 
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-violet-500/15 text-violet-300">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-violet-500/15 text-violet-700">
                 <ShieldCheck size={23} />
               </div>
 
@@ -802,16 +773,16 @@ export default function Home() {
                 Browser-first tools
               </h3>
 
-              <p className="mt-2 text-sm leading-6 text-slate-400">
+              <p className="mt-2 text-sm leading-6 text-slate-600">
                 Many of our tools process files directly in your browser for a fast and convenient workflow.
               </p>
 
             </div>
 
 
-            <div className="rounded-[26px] border border-white/10 bg-white/[0.055] p-6 backdrop-blur">
+            <div className="rounded-[26px] border border-slate-200 bg-white p-6 shadow-[0_10px_30px_rgba(15,23,42,0.06)]">
 
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-500/15 text-blue-300">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-50 text-blue-700">
                 <Zap size={23} />
               </div>
 
@@ -819,16 +790,16 @@ export default function Home() {
                 Fast by design
               </h3>
 
-              <p className="mt-2 text-sm leading-6 text-slate-400">
+              <p className="mt-2 text-sm leading-6 text-slate-600">
                 Focused interfaces remove unnecessary steps so you can upload, process and download quickly.
               </p>
 
             </div>
 
 
-            <div className="rounded-[26px] border border-white/10 bg-white/[0.055] p-6 backdrop-blur">
+            <div className="rounded-[26px] border border-slate-200 bg-white p-6 shadow-[0_10px_30px_rgba(15,23,42,0.06)]">
 
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-500/15 text-indigo-300">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-700">
                 <Layers3 size={23} />
               </div>
 
@@ -836,7 +807,7 @@ export default function Home() {
                 One growing workspace
               </h3>
 
-              <p className="mt-2 text-sm leading-6 text-slate-400">
+              <p className="mt-2 text-sm leading-6 text-slate-600">
                 PDF and image tools live in one organized workspace, with more useful tools ready to be added over time.
               </p>
 
@@ -846,11 +817,11 @@ export default function Home() {
 
 
           {/* How It Works */}
-          <div className="mt-20 rounded-[32px] border border-white/10 bg-white/[0.04] p-6 md:p-10">
+          <div className="mt-20 rounded-[32px] border border-slate-200 bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.07)] md:p-10">
 
             <div className="text-center">
 
-              <p className="text-xs font-black uppercase tracking-[0.16em] text-violet-300">
+              <p className="text-xs font-black uppercase tracking-[0.16em] text-violet-700">
                 How it works
               </p>
 
@@ -863,13 +834,13 @@ export default function Home() {
 
             <div className="mt-10 grid gap-4 md:grid-cols-3">
 
-              <div className="relative rounded-[24px] border border-white/10 bg-slate-900/60 p-6">
+              <div className="relative rounded-[24px] border border-slate-200 bg-slate-50/70 p-6">
 
-                <div className="absolute right-5 top-5 text-5xl font-black text-white/[0.04]">
+                <div className="absolute right-5 top-5 text-5xl font-black text-slate-900/[0.05]">
                   01
                 </div>
 
-                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-violet-500 text-white shadow-lg shadow-violet-950/30">
+                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-violet-500 text-white shadow-md shadow-violet-200/60">
                   <Upload size={20} />
                 </div>
 
@@ -877,20 +848,20 @@ export default function Home() {
                   Upload your file
                 </h4>
 
-                <p className="mt-2 text-sm leading-6 text-slate-400">
+                <p className="mt-2 text-sm leading-6 text-slate-600">
                   Choose the PDF or image you want to work with.
                 </p>
 
               </div>
 
 
-              <div className="relative rounded-[24px] border border-white/10 bg-slate-900/60 p-6">
+              <div className="relative rounded-[24px] border border-slate-200 bg-slate-50/70 p-6">
 
-                <div className="absolute right-5 top-5 text-5xl font-black text-white/[0.04]">
+                <div className="absolute right-5 top-5 text-5xl font-black text-slate-900/[0.05]">
                   02
                 </div>
 
-                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-indigo-500 text-white shadow-lg shadow-indigo-950/30">
+                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-indigo-500 text-white shadow-md shadow-indigo-200/60">
                   <WandSparkles size={20} />
                 </div>
 
@@ -898,20 +869,20 @@ export default function Home() {
                   Process it
                 </h4>
 
-                <p className="mt-2 text-sm leading-6 text-slate-400">
+                <p className="mt-2 text-sm leading-6 text-slate-600">
                   Apply the settings you need using a clean, focused interface.
                 </p>
 
               </div>
 
 
-              <div className="relative rounded-[24px] border border-white/10 bg-slate-900/60 p-6">
+              <div className="relative rounded-[24px] border border-slate-200 bg-slate-50/70 p-6">
 
-                <div className="absolute right-5 top-5 text-5xl font-black text-white/[0.04]">
+                <div className="absolute right-5 top-5 text-5xl font-black text-slate-900/[0.05]">
                   03
                 </div>
 
-                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-500 text-white shadow-lg shadow-blue-950/30">
+                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-500 text-white shadow-md shadow-blue-200/60">
                   <Download size={20} />
                 </div>
 
@@ -919,7 +890,7 @@ export default function Home() {
                   Download the result
                 </h4>
 
-                <p className="mt-2 text-sm leading-6 text-slate-400">
+                <p className="mt-2 text-sm leading-6 text-slate-600">
                   Save the finished file and continue with your work.
                 </p>
 
@@ -934,41 +905,25 @@ export default function Home() {
       </section>
 
       {/* Premium Footer */}
-      <footer className="border-t border-slate-800 bg-slate-950 px-5 text-slate-400 md:px-6">
+      <footer className="border-t border-violet-100 bg-gradient-to-br from-violet-50 via-white to-blue-50 px-5 text-slate-600 md:px-6">
 
-        <div className="mx-auto max-w-7xl py-14 md:py-16">
+        <div className="mx-auto max-w-[1500px] py-14 md:py-16">
 
-          <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-[1.4fr_1fr_1fr_1fr]">
+          <div className="grid gap-10 rounded-[32px] border border-white/80 bg-white/80 p-8 shadow-[0_24px_70px_rgba(79,70,229,0.10)] backdrop-blur-xl sm:grid-cols-2 md:p-10 lg:grid-cols-[1.4fr_1fr_1fr_1fr]">
 
             {/* Brand */}
             <div className="max-w-sm">
 
-              <a href="/" className="inline-flex items-center gap-3">
-
-                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-violet-600 to-blue-600 text-lg font-black text-white shadow-lg shadow-violet-950/30">
-                  P
-                </div>
-
-                <div>
-                  <div className="text-lg font-black text-white">
-                    PDF Tools
-                  </div>
-
-                  <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">
-                    Documents & Images
-                  </div>
-                </div>
-
-              </a>
+              <a href="/" className="inline-flex items-center"><img src="/toolijo-logo.png" alt="Toolijo" className="h-11 w-auto max-w-[220px] object-contain" /></a>
 
 
-              <p className="mt-5 text-sm leading-6 text-slate-400">
+              <p className="mt-5 text-sm leading-6 text-slate-600">
                 A growing collection of simple tools for working with PDFs and images directly from your browser.
               </p>
 
 
-              <div className="mt-6 inline-flex rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-xs font-bold text-slate-400">
-                19 tools and growing
+              <div className="mt-6 inline-flex rounded-full border border-violet-100 bg-violet-50 px-4 py-2 text-xs font-bold text-violet-700">
+                {allTools.length} tools and growing
               </div>
 
             </div>
@@ -977,7 +932,7 @@ export default function Home() {
             {/* PDF Tools */}
             <div>
 
-              <h3 className="text-sm font-black uppercase tracking-[0.12em] text-white">
+              <h3 className="text-sm font-black uppercase tracking-[0.12em] text-slate-950">
                 PDF Tools
               </h3>
 
@@ -985,42 +940,42 @@ export default function Home() {
 
                 <a
                   href="/edit-pdf"
-                  className="block transition hover:text-white"
+                  className="block transition hover:text-violet-700"
                 >
                   Edit PDF
                 </a>
 
                 <a
                   href="/merge-pdf"
-                  className="block transition hover:text-white"
+                  className="block transition hover:text-violet-700"
                 >
                   Merge PDF
                 </a>
 
                 <a
                   href="/split-pdf"
-                  className="block transition hover:text-white"
+                  className="block transition hover:text-violet-700"
                 >
                   Split PDF
                 </a>
 
                 <a
                   href="/pdf-to-word"
-                  className="block transition hover:text-white"
+                  className="block transition hover:text-violet-700"
                 >
                   PDF to Word
                 </a>
 
                 <a
                   href="/pdf-to-excel"
-                  className="block transition hover:text-white"
+                  className="block transition hover:text-violet-700"
                 >
                   PDF to Excel
                 </a>
 
                 <a
                   href="#pdf-tools"
-                  className="block font-bold text-violet-300 transition hover:text-violet-200"
+                  className="block font-bold text-violet-700 transition hover:text-violet-600"
                 >
                   View all PDF tools
                 </a>
@@ -1033,7 +988,7 @@ export default function Home() {
             {/* Image Tools */}
             <div>
 
-              <h3 className="text-sm font-black uppercase tracking-[0.12em] text-white">
+              <h3 className="text-sm font-black uppercase tracking-[0.12em] text-slate-950">
                 Image Tools
               </h3>
 
@@ -1041,28 +996,28 @@ export default function Home() {
 
                 <a
                   href="/image-converter"
-                  className="block transition hover:text-white"
+                  className="block transition hover:text-violet-700"
                 >
                   Image Converter
                 </a>
 
                 <a
                   href="/compress-image"
-                  className="block transition hover:text-white"
+                  className="block transition hover:text-violet-700"
                 >
                   Compress Image
                 </a>
 
                 <a
                   href="/resize-image"
-                  className="block transition hover:text-white"
+                  className="block transition hover:text-violet-700"
                 >
                   Resize Image
                 </a>
 
                 <a
                   href="#image-tools"
-                  className="block font-bold text-violet-300 transition hover:text-violet-200"
+                  className="block font-bold text-violet-700 transition hover:text-violet-600"
                 >
                   View all image tools
                 </a>
@@ -1075,7 +1030,7 @@ export default function Home() {
             {/* Help */}
             <div>
 
-              <h3 className="text-sm font-black uppercase tracking-[0.12em] text-white">
+              <h3 className="text-sm font-black uppercase tracking-[0.12em] text-slate-950">
                 Help & Legal
               </h3>
 
@@ -1083,28 +1038,28 @@ export default function Home() {
 
                 <a
                   href="#"
-                  className="block transition hover:text-white"
+                  className="block transition hover:text-violet-700"
                 >
                   Privacy Policy
                 </a>
 
                 <a
                   href="#"
-                  className="block transition hover:text-white"
+                  className="block transition hover:text-violet-700"
                 >
                   Terms of Use
                 </a>
 
                 <a
                   href="#"
-                  className="block transition hover:text-white"
+                  className="block transition hover:text-violet-700"
                 >
                   Contact
                 </a>
 
                 <a
                   href="#popular-tools"
-                  className="block transition hover:text-white"
+                  className="block transition hover:text-violet-700"
                 >
                   Popular Tools
                 </a>
@@ -1119,7 +1074,7 @@ export default function Home() {
 
 
         {/* Bottom Bar */}
-        <div className="border-t border-white/10">
+        <div className="border-t border-slate-200">
 
           <div className="mx-auto flex max-w-7xl flex-col gap-3 py-6 text-center text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between sm:text-left">
 

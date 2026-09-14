@@ -47,6 +47,7 @@ export const tools: ToolItem[] = [
     icon: "\u2702\uFE0F",
     category: "pdf",
     subcategory: "edit-organize",
+    popular: true,
     keywords: ["split", "separate", "extract", "pages", "pdf"],
   },
   {
@@ -75,6 +76,7 @@ export const tools: ToolItem[] = [
     icon: "\uD83D\uDCC4",
     category: "pdf",
     subcategory: "convert",
+    popular: true,
     keywords: ["jpg", "jpeg", "png", "image", "pdf", "convert"],
   },
   {
@@ -84,6 +86,7 @@ export const tools: ToolItem[] = [
     icon: "\uD83D\uDD04",
     category: "pdf",
     subcategory: "edit-organize",
+    popular: true,
     keywords: ["rotate", "turn", "page", "pdf"],
   },
   {
@@ -93,6 +96,7 @@ export const tools: ToolItem[] = [
     icon: "\uD83D\uDCCB",
     category: "pdf",
     subcategory: "edit-organize",
+    popular: true,
     keywords: ["organize", "reorder", "remove", "pages", "pdf"],
   },
   {
@@ -158,6 +162,16 @@ export const tools: ToolItem[] = [
     subcategory: "convert",
     popular: true,
     keywords: ["pdf", "word", "docx", "document", "convert"],
+  },
+  {
+    title: "Word to PDF",
+    description: "Convert DOC and DOCX files into high-quality PDF documents.",
+    href: "/word-to-pdf",
+    icon: "\uD83D\uDCC4",
+    category: "pdf",
+    subcategory: "convert",
+    popular: true,
+    keywords: ["word", "doc", "docx", "pdf", "document", "convert"],
   },
   {
     title: "PDF to Excel",
