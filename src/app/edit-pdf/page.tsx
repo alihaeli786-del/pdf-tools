@@ -207,6 +207,7 @@ function PdfPagePreview({
   return (
     <button
       type="button"
+      onMouseEnter={onActivate}
       onClick={onActivate}
       className="block border-0 bg-transparent p-0"
       title={`Edit page ${pageNumber}`}
@@ -2271,12 +2272,19 @@ const sameStyle =
   /(Italic|Oblique)/i.test(previous.fontName) ===
     /(Italic|Oblique)/i.test(box.fontName);
 
+const isStandaloneMarker = (text: string) =>
+  /^[^\p{L}\p{N}]$/u.test(text.trim());
+
+const standaloneMarker =
+  isStandaloneMarker(previous.text) || isStandaloneMarker(box.text);
+
     if (
   sameLine &&
   closeEnough &&
   similarSize &&
   sameFont &&
-  sameStyle
+  sameStyle &&
+  !standaloneMarker
 ) {
       const needsSpace =
         gap >
@@ -6164,7 +6172,7 @@ if (tool.label === "Shapes") {
         </div>
       </div>
 
-      <section className="relative flex min-w-0 w-full max-w-full flex-1 flex-col items-start gap-2 overflow-auto overscroll-contain p-2 md:items-center md:p-8">
+      <section className="relative flex min-w-0 w-full max-w-full flex-1 flex-col items-start gap-2 overflow-auto p-2 md:items-center md:p-8">
         {rendering && (
           <div className="fixed bottom-6 right-6 z-50 rounded bg-slate-900 px-4 py-2 text-sm text-white">
             Rendering page...
@@ -6207,7 +6215,8 @@ if (tool.label === "Shapes") {
             pageNumber={previewPage}
             scale={scale}
             onActivate={() => {
-              setPageNumber(previewPage);
+              flushSync(() => setPageNumber(previewPage));
+              pageEditorRef.current?.scrollIntoView({ behavior: "auto", block: "start" });
               setRotation(0);
             }}
           />
@@ -7350,7 +7359,7 @@ const hasChanged =
                     measuredTextBox.height,
                     8
                   ) + 2
-                : Math.max(box.height * 1.25, 14),
+                : Math.max(box.height * 1.25, 14) + 3,
 
             backgroundColor: box.backgroundColor,
 
@@ -7488,6 +7497,9 @@ const hasChanged =
 }}
           value={activeEdit.text}
           spellCheck={false}
+          data-gramm="false"
+          data-gramm_editor="false"
+          data-enable-grammarly="false"
 
           onPointerDown={(event) => {
   event.stopPropagation();
@@ -7918,7 +7930,8 @@ height: Math.max(
             pageNumber={previewPage}
             scale={scale}
             onActivate={() => {
-              setPageNumber(previewPage);
+              flushSync(() => setPageNumber(previewPage));
+              pageEditorRef.current?.scrollIntoView({ behavior: "auto", block: "start" });
               setRotation(0);
             }}
           />
