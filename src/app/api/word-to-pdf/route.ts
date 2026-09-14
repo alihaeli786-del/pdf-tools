@@ -53,7 +53,7 @@ export async function POST(request: Request) {
     }
 
     const input = new Uint8Array(await file.arrayBuffer());
-    const converter = await createWorkerConverter({ wasmPath });
+    const converter = await createWorkerConverter({ wasmPath, workerPath: path.join(process.cwd(), "node_modules", "@matbee", "libreoffice-converter", "dist", "node.worker.cjs") });
 
     try {
       const result = await converter.convert(
