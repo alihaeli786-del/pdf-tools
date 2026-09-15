@@ -171,6 +171,7 @@ export const tools: ToolItem[] = [
     category: "pdf",
     subcategory: "convert",
     popular: true,
+    comingSoon: true,
     keywords: ["word", "doc", "docx", "pdf", "document", "convert"],
   },
   {
@@ -235,3 +236,4 @@ export const tools: ToolItem[] = [
 export const pdfTools = tools.filter((tool) => tool.category === "pdf");
 export const imageTools = tools.filter((tool) => tool.category === "image");
 export const popularTools = tools.filter((tool) => tool.popular);
+
