@@ -1,5 +1,5 @@
 import path from "path";
-import { createWorkerConverter } from "@matbee/libreoffice-converter/server";
+import { createSubprocessConverter } from "@matbee/libreoffice-converter/server";
 
 export const runtime = "nodejs";
 
@@ -10,6 +10,15 @@ const wasmPath = path.join(
   "libreoffice-converter",
   "wasm"
 );
+
+let converterPromise: ReturnType<typeof createSubprocessConverter> | null = null;
+
+function getConverter() {
+  if (!converterPromise) {
+    converterPromise = createSubprocessConverter({ wasmPath });
+  }
+  return converterPromise;
+}
 
 const allowedMimeTypes = new Set([
   "application/msword",
@@ -53,10 +62,9 @@ export async function POST(request: Request) {
     }
 
     const input = new Uint8Array(await file.arrayBuffer());
-    const converter = await createWorkerConverter({ wasmPath, workerPath: path.join(process.cwd(), "node_modules", "@matbee", "libreoffice-converter", "dist", "node.worker.cjs") });
+    const converter = await getConverter();
 
-    try {
-      const result = await converter.convert(
+    const result = await converter.convert(
         input,
         { outputFormat: "pdf" },
         file.name
@@ -84,9 +92,6 @@ export async function POST(request: Request) {
           "Cache-Control": "no-store",
         },
       });
-    } finally {
-      await converter.destroy();
-    }
   } catch (error) {
     console.error("Word to PDF conversion error:", error);
 
@@ -96,3 +101,6 @@ export async function POST(request: Request) {
     );
   }
 }
+
+
+
