@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { toolSeo } from "@/data/toolSeo";
+import RelatedTools from "@/components/RelatedTools";
 
 const seo = toolSeo["/jpg-to-pdf"];
 
@@ -23,5 +24,10 @@ export const metadata: Metadata = {
 };
 
 export default function JpgToPdfLayout({ children }: { children: React.ReactNode }) {
-  return children;
+  return (
+    <>
+      {children}
+      <RelatedTools currentHref="/jpg-to-pdf" />
+    </>
+  );
 }

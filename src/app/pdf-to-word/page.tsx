@@ -1059,6 +1059,28 @@ export default function PdfToWordPage() {
             )}
           </div>
         )}
+
+        <section className="mx-auto mt-16 max-w-6xl rounded-[32px] border border-slate-200 bg-white px-6 py-10 shadow-sm md:px-10">
+          <div className="mx-auto max-w-3xl text-center">
+            <h2 className="text-3xl font-black tracking-[-0.03em] text-slate-950 md:text-4xl">How to convert PDF to Word online</h2>
+            <p className="mt-4 text-base leading-7 text-slate-600">Upload a text-based PDF, choose how you want the Word document structured, convert the file, then download the editable DOCX document.</p>
+          </div>
+          <div className="mt-8 grid gap-5 md:grid-cols-3">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+              <h3 className="font-black text-slate-950">1. Upload your PDF</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-600">Choose a text-based PDF and preview the document before conversion.</p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+              <h3 className="font-black text-slate-950">2. Choose a conversion mode</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-600">Use Keep layout for positioned content or Optimize for legibility for cleaner flowing text.</p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+              <h3 className="font-black text-slate-950">3. Convert and download</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-600">Convert the PDF and download the resulting editable DOCX file.</p>
+            </div>
+          </div>
+        </section>
+
       </section>
     </main>
   );

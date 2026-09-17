@@ -2502,6 +2502,28 @@ export default function PdfToExcelPage() {
             )}
           </div>
         )}
+
+        <section className="mx-auto mt-16 max-w-6xl rounded-[32px] border border-slate-200 bg-white px-6 py-10 shadow-sm md:px-10">
+          <div className="mx-auto max-w-3xl text-center">
+            <h2 className="text-3xl font-black tracking-[-0.03em] text-slate-950 md:text-4xl">How to convert PDF to Excel online</h2>
+            <p className="mt-4 text-base leading-7 text-slate-600">Upload a PDF containing tables or structured data, choose the conversion mode, convert the document, then download the editable Excel workbook.</p>
+          </div>
+          <div className="mt-8 grid gap-5 md:grid-cols-3">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+              <h3 className="font-black text-slate-950">1. Upload your PDF</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-600">Choose a PDF containing tables, invoices or other structured information.</p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+              <h3 className="font-black text-slate-950">2. Choose a conversion mode</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-600">Use Keep style and layout for mixed content or Optimized for tables for cleaner rows and columns.</p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+              <h3 className="font-black text-slate-950">3. Convert and download</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-600">Convert the PDF and download the extracted data as an editable XLSX workbook.</p>
+            </div>
+          </div>
+        </section>
+
       </section>
     </main>
   );

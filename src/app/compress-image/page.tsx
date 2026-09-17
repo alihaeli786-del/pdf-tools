@@ -1455,6 +1455,44 @@ export default function CompressImagePage() {
           </div>
         )}
 
+
+        <section className="mx-auto mt-16 max-w-6xl rounded-[32px] border border-slate-200 bg-white px-6 py-10 shadow-sm md:px-10">
+          <div className="mx-auto max-w-3xl text-center">
+            <h2 className="text-3xl font-black tracking-[-0.03em] text-slate-950 md:text-4xl">How to compress images online</h2>
+            <p className="mt-4 text-base leading-7 text-slate-600">Choose your JPG, PNG or WebP images, select a target file size or manual quality level, then compress and download the optimized files.</p>
+          </div>
+          <div className="mt-8 grid gap-5 md:grid-cols-3">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+              <h3 className="font-black text-slate-950">1. Add your images</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-600">Upload one or multiple JPG, PNG or WebP files, or drag and drop them into the tool.</p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+              <h3 className="font-black text-slate-950">2. Choose compression</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-600">Set a maximum file-size target or control image quality manually depending on your needs.</p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+              <h3 className="font-black text-slate-950">3. Download the results</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-600">Compare original and compressed sizes, download files individually, or save multiple results in one ZIP.</p>
+            </div>
+          </div>
+        </section>
+
+        <section className="mx-auto mt-8 max-w-6xl grid gap-6 md:grid-cols-2">
+          <div className="rounded-[28px] border border-slate-200 bg-white p-7 shadow-sm">
+            <h2 className="text-2xl font-black tracking-[-0.02em] text-slate-950">Flexible image compression</h2>
+            <p className="mt-3 text-base leading-7 text-slate-600">Use target-size compression when you need to stay under a file-size limit, or choose manual quality when you want more control over image quality and file size.</p>
+          </div>
+          <div className="rounded-[28px] border border-slate-200 bg-white p-7 shadow-sm">
+            <h2 className="text-2xl font-black tracking-[-0.02em] text-slate-950">Private browser-based processing</h2>
+            <p className="mt-3 text-base leading-7 text-slate-600">Your images are processed directly in your browser, so they do not need to be uploaded to a remote server for compression.</p>
+          </div>
+        </section>
+
+        <section className="mx-auto mt-8 max-w-6xl rounded-[28px] border border-violet-100 bg-violet-50/60 p-7 md:p-9">
+          <h2 className="text-2xl font-black tracking-[-0.02em] text-slate-950">Compress JPG, PNG and WebP images</h2>
+          <p className="mt-3 max-w-4xl text-base leading-7 text-slate-600">Toolijo supports JPG, JPEG, PNG and WebP image compression. Process multiple images in one session and download all compressed files together when you are finished.</p>
+        </section>
+
       </section>
 
     </main>

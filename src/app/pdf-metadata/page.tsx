@@ -540,6 +540,39 @@ export default function PdfMetadataPage() {
             )}
           </div>
         )}
+
+        <section className="mx-auto mt-16 max-w-6xl rounded-[32px] border border-slate-200 bg-white px-6 py-10 shadow-sm md:px-10">
+          <div className="mx-auto max-w-3xl text-center">
+            <h2 className="text-3xl font-black tracking-[-0.03em] text-slate-950 md:text-4xl">How to edit PDF metadata online</h2>
+            <p className="mt-4 text-base leading-7 text-slate-600">Upload a PDF, review its document information, update the editable metadata fields, then save and download a new PDF with your changes.</p>
+          </div>
+          <div className="mt-8 grid gap-5 md:grid-cols-3">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+              <h3 className="font-black text-slate-950">1. Upload your PDF</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-600">Choose a PDF file to view the document metadata stored inside it.</p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+              <h3 className="font-black text-slate-950">2. Edit document information</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-600">Update fields such as title, author, creator, subject, keywords and producer.</p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+              <h3 className="font-black text-slate-950">3. Save and download</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-600">Save the metadata changes and download the updated PDF while keeping your original file unchanged.</p>
+            </div>
+          </div>
+        </section>
+
+        <section className="mx-auto mt-8 max-w-6xl grid gap-6 md:grid-cols-2">
+          <div className="rounded-[28px] border border-slate-200 bg-white p-7 shadow-sm">
+            <h2 className="text-2xl font-black tracking-[-0.02em] text-slate-950">View and update PDF document properties</h2>
+            <p className="mt-3 text-base leading-7 text-slate-600">Review common PDF metadata including title, author, subject, keywords, creator and producer, while also viewing available creation and modification dates.</p>
+          </div>
+          <div className="rounded-[28px] border border-slate-200 bg-white p-7 shadow-sm">
+            <h2 className="text-2xl font-black tracking-[-0.02em] text-slate-950">Private browser-based editing</h2>
+            <p className="mt-3 text-base leading-7 text-slate-600">Your PDF stays in your browser while its metadata is read and updated.</p>
+          </div>
+        </section>
+
       </section>
     </main>
   );

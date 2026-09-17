@@ -2876,6 +2876,39 @@ export default function ImageConverterPage() {
 
           </div>
         )}
+
+        <section className="mx-auto mt-16 max-w-6xl rounded-[32px] border border-slate-200 bg-white px-6 py-10 shadow-sm md:px-10">
+          <div className="mx-auto max-w-3xl text-center">
+            <h2 className="text-3xl font-black tracking-[-0.03em] text-slate-950 md:text-4xl">How to convert images online</h2>
+            <p className="mt-4 text-base leading-7 text-slate-600">Upload one or multiple images, choose the output format and quality, convert them in your browser, then download the finished files.</p>
+          </div>
+          <div className="mt-8 grid gap-5 md:grid-cols-3">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+              <h3 className="font-black text-slate-950">1. Upload your images</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-600">Choose one or multiple supported image files or drag and drop them into the converter.</p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+              <h3 className="font-black text-slate-950">2. Choose format and quality</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-600">Select the output format and adjust quality for JPG, WebP or AVIF when you need more control over file size and image detail.</p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+              <h3 className="font-black text-slate-950">3. Convert and download</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-600">Convert the selected images and download each finished file directly from the results.</p>
+            </div>
+          </div>
+        </section>
+
+        <section className="mx-auto mt-8 max-w-6xl grid gap-6 md:grid-cols-2">
+          <div className="rounded-[28px] border border-slate-200 bg-white p-7 shadow-sm">
+            <h2 className="text-2xl font-black tracking-[-0.02em] text-slate-950">Convert multiple image formats</h2>
+            <p className="mt-3 text-base leading-7 text-slate-600">Work with formats including JPG, PNG, WebP, BMP, GIF, SVG, ICO, HEIC, TIFF, TGA, AVIF, HDR, EXR and WBMP, with a wide range of output choices.</p>
+          </div>
+          <div className="rounded-[28px] border border-slate-200 bg-white p-7 shadow-sm">
+            <h2 className="text-2xl font-black tracking-[-0.02em] text-slate-950">Private browser-based conversion</h2>
+            <p className="mt-3 text-base leading-7 text-slate-600">Your images are processed directly in your browser, so conversion can happen without sending them to a remote conversion server.</p>
+          </div>
+        </section>
+
       </section>
     </main>
   );

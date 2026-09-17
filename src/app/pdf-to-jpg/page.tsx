@@ -605,6 +605,39 @@ export default function PdfToJpgPage() {
             Your documents are not uploaded to a conversion server.
           </p>
         </div>
+
+        <section className="mx-auto mt-16 max-w-6xl rounded-[32px] border border-slate-200 bg-white px-6 py-10 shadow-sm md:px-10">
+          <div className="mx-auto max-w-3xl text-center">
+            <h2 className="text-3xl font-black tracking-[-0.03em] text-slate-950 md:text-4xl">How to convert PDF to JPG online</h2>
+            <p className="mt-4 text-base leading-7 text-slate-600">Upload a PDF, choose the image quality, convert each page to JPG, then download individual images or all pages together in a ZIP file.</p>
+          </div>
+          <div className="mt-8 grid gap-5 md:grid-cols-3">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+              <h3 className="font-black text-slate-950">1. Upload your PDF</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-600">Choose a PDF file and open it in the converter directly in your browser.</p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+              <h3 className="font-black text-slate-950">2. Choose image quality</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-600">Select Standard, High or Maximum quality depending on the balance you want between image detail and file size.</p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+              <h3 className="font-black text-slate-950">3. Download the JPG images</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-600">Download converted pages one by one or save all JPG images together in a ZIP file.</p>
+            </div>
+          </div>
+        </section>
+
+        <section className="mx-auto mt-8 max-w-6xl grid gap-6 md:grid-cols-2">
+          <div className="rounded-[28px] border border-slate-200 bg-white p-7 shadow-sm">
+            <h2 className="text-2xl font-black tracking-[-0.02em] text-slate-950">Convert every PDF page to JPG</h2>
+            <p className="mt-3 text-base leading-7 text-slate-600">Each PDF page is converted into a separate JPG image, making it easy to reuse pages in presentations, websites or other projects.</p>
+          </div>
+          <div className="rounded-[28px] border border-slate-200 bg-white p-7 shadow-sm">
+            <h2 className="text-2xl font-black tracking-[-0.02em] text-slate-950">Private browser-based conversion</h2>
+            <p className="mt-3 text-base leading-7 text-slate-600">Your PDF is processed locally in your browser and does not need to be uploaded to a remote conversion server.</p>
+          </div>
+        </section>
+
       </section>
     </main>
   );

@@ -814,6 +814,39 @@ export default function PageNumbersPdfPage() {
             )}
           </div>
         )}
+
+        <section className="mx-auto mt-16 max-w-6xl rounded-[32px] border border-slate-200 bg-white px-6 py-10 shadow-sm md:px-10">
+          <div className="mx-auto max-w-3xl text-center">
+            <h2 className="text-3xl font-black tracking-[-0.03em] text-slate-950 md:text-4xl">How to add page numbers to a PDF online</h2>
+            <p className="mt-4 text-base leading-7 text-slate-600">Upload your PDF, customize the numbering style and position, preview the result, then download the numbered document.</p>
+          </div>
+          <div className="mt-8 grid gap-5 md:grid-cols-3">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+              <h3 className="font-black text-slate-950">1. Upload your PDF</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-600">Choose a PDF file and open it in the page numbering tool.</p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+              <h3 className="font-black text-slate-950">2. Customize the numbers</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-600">Choose the number style, starting number, font size and page position, with the option to skip the first page.</p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+              <h3 className="font-black text-slate-950">3. Preview and download</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-600">Check the live preview, apply the numbering, and download the updated PDF when it looks right.</p>
+            </div>
+          </div>
+        </section>
+
+        <section className="mx-auto mt-8 max-w-6xl grid gap-6 md:grid-cols-2">
+          <div className="rounded-[28px] border border-slate-200 bg-white p-7 shadow-sm">
+            <h2 className="text-2xl font-black tracking-[-0.02em] text-slate-950">Flexible numbering styles and positions</h2>
+            <p className="mt-3 text-base leading-7 text-slate-600">Use simple numbers or page labels, start from the number you choose, and place numbering at the top or bottom of the page.</p>
+          </div>
+          <div className="rounded-[28px] border border-slate-200 bg-white p-7 shadow-sm">
+            <h2 className="text-2xl font-black tracking-[-0.02em] text-slate-950">Preview before you save</h2>
+            <p className="mt-3 text-base leading-7 text-slate-600">The live preview updates as you change the settings so you can check the appearance before creating the numbered PDF.</p>
+          </div>
+        </section>
+
       </section>
     </main>
   );

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { toolSeo } from "@/data/toolSeo";
+import RelatedTools from "@/components/RelatedTools";
 
 const seo = toolSeo["/split-pdf"];
 
@@ -23,5 +24,10 @@ export const metadata: Metadata = {
 };
 
 export default function SplitPdfLayout({ children }: { children: React.ReactNode }) {
-  return children;
+  return (
+    <>
+      {children}
+      <RelatedTools currentHref="/split-pdf" />
+    </>
+  );
 }

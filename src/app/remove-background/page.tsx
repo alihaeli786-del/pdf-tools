@@ -1987,6 +1987,44 @@ export default function RemoveBackgroundPage() {
 
         )}
 
+
+        <section className="mx-auto mt-16 max-w-6xl rounded-[32px] border border-slate-200 bg-white px-6 py-10 shadow-sm md:px-10">
+          <div className="mx-auto max-w-3xl text-center">
+            <h2 className="text-3xl font-black tracking-[-0.03em] text-slate-950 md:text-4xl">How to remove an image background online</h2>
+            <p className="mt-4 text-base leading-7 text-slate-600">Upload a JPG, PNG or WebP image, let the AI separate the subject from the background, refine the result if needed, then download a transparent PNG.</p>
+          </div>
+          <div className="mt-8 grid gap-5 md:grid-cols-3">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+              <h3 className="font-black text-slate-950">1. Add your image</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-600">Choose a JPG, PNG or WebP file and load it into the background removal tool.</p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+              <h3 className="font-black text-slate-950">2. Remove the background</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-600">The AI model processes the image in your browser and creates a transparent-background result.</p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+              <h3 className="font-black text-slate-950">3. Refine and download</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-600">Use the erase and restore brushes to fine-tune the cutout, then download the finished image as a PNG.</p>
+            </div>
+          </div>
+        </section>
+
+        <section className="mx-auto mt-8 max-w-6xl grid gap-6 md:grid-cols-2">
+          <div className="rounded-[28px] border border-slate-200 bg-white p-7 shadow-sm">
+            <h2 className="text-2xl font-black tracking-[-0.02em] text-slate-950">AI background removal with manual control</h2>
+            <p className="mt-3 text-base leading-7 text-slate-600">Start with automatic AI background removal, then use adjustable erase and restore brushes when an edge or small detail needs extra attention.</p>
+          </div>
+          <div className="rounded-[28px] border border-slate-200 bg-white p-7 shadow-sm">
+            <h2 className="text-2xl font-black tracking-[-0.02em] text-slate-950">Private browser-based processing</h2>
+            <p className="mt-3 text-base leading-7 text-slate-600">Background removal runs directly in your browser, so the image does not need to be uploaded to a remote server for processing.</p>
+          </div>
+        </section>
+
+        <section className="mx-auto mt-8 max-w-6xl rounded-[28px] border border-violet-100 bg-violet-50/60 p-7 md:p-9">
+          <h2 className="text-2xl font-black tracking-[-0.02em] text-slate-950">Remove backgrounds from JPG, PNG and WebP images</h2>
+          <p className="mt-3 max-w-4xl text-base leading-7 text-slate-600">Toolijo accepts JPG, JPEG, PNG and WebP images and exports the finished cutout as a transparent PNG, ready for websites, product images and other design work.</p>
+        </section>
+
       </section>
 
     </main>

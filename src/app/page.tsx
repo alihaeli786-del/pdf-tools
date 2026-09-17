@@ -173,6 +173,19 @@ export default function Home() {
 
   return (
     <main className="min-h-screen overflow-x-clip bg-[#f7f8fc] text-slate-900">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify({
+            "@context": "https://schema.org",
+            "@type": "WebSite",
+            name: "Toolijo",
+            url: "https://toolijo.com",
+            description:
+              "Free online PDF and image tools for editing, converting, organizing and managing files in your browser.",
+          }),
+        }}
+      />
       {/* Premium Header */}
       <header className="sticky top-0 z-50 border-b border-slate-200/80 bg-white/90 backdrop-blur-xl">
 
@@ -1037,21 +1050,28 @@ export default function Home() {
               <div className="mt-5 space-y-3 text-sm">
 
                 <a
-                  href="#"
+                  href="/about"
+                  className="block transition hover:text-violet-700"
+                >
+                  About Us
+                </a>
+
+                <a
+                  href="/privacy"
                   className="block transition hover:text-violet-700"
                 >
                   Privacy Policy
                 </a>
 
                 <a
-                  href="#"
+                  href="/terms"
                   className="block transition hover:text-violet-700"
                 >
                   Terms of Use
                 </a>
 
                 <a
-                  href="#"
+                  href="/contact"
                   className="block transition hover:text-violet-700"
                 >
                   Contact
@@ -1079,7 +1099,7 @@ export default function Home() {
           <div className="mx-auto flex max-w-7xl flex-col gap-3 py-6 text-center text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between sm:text-left">
 
             <p>
-              {"\u00A9"} 2026 PDF Tools. All rights reserved.
+              {"\u00A9"} 2026 Toolijo. All rights reserved.
             </p>
 
             <p>

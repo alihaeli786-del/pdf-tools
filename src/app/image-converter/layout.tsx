@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { toolSeo } from "@/data/toolSeo";
+import RelatedTools from "@/components/RelatedTools";
 
 const seo = toolSeo["/image-converter"];
 
@@ -23,5 +24,10 @@ export const metadata: Metadata = {
 };
 
 export default function ImageConverterLayout({ children }: { children: React.ReactNode }) {
-  return children;
+  return (
+    <>
+      {children}
+      <RelatedTools currentHref="/image-converter" />
+    </>
+  );
 }

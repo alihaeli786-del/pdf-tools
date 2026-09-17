@@ -1190,6 +1190,28 @@ export default function UnlockPdfPage() {
             </aside>
           </div>
         )}
+
+        <section className="mx-auto mt-16 max-w-6xl rounded-[32px] border border-slate-200 bg-white px-6 py-10 shadow-sm md:px-10">
+          <div className="mx-auto max-w-3xl text-center">
+            <h2 className="text-3xl font-black tracking-[-0.03em] text-slate-950 md:text-4xl">How to unlock a PDF online</h2>
+            <p className="mt-4 text-base leading-7 text-slate-600">Upload a password-protected PDF that you own or have permission to modify, enter the password if you know it, or use remembered password clues when recovery mode is appropriate.</p>
+          </div>
+          <div className="mt-8 grid gap-5 md:grid-cols-3">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+              <h3 className="font-black text-slate-950">1. Upload the protected PDF</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-600">Choose a password-protected PDF that belongs to you or that you are authorized to unlock.</p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+              <h3 className="font-black text-slate-950">2. Enter the password or recovery clues</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-600">Use normal unlock when you know the password. If you forgot it, recovery mode can test words and numbers you remember may have been used.</p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+              <h3 className="font-black text-slate-950">3. Unlock and download</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-600">When the password matches, unlock the document and download the resulting PDF.</p>
+            </div>
+          </div>
+        </section>
+
       </section>
     </main>
   );

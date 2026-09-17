@@ -4,6 +4,12 @@ import { tools } from "@/data/tools";
 export default function sitemap(): MetadataRoute.Sitemap {
   const baseUrl = "https://toolijo.com";
 
+  const staticUrls = ["/about", "/privacy", "/terms", "/contact"].map((path) => ({
+    url: `${baseUrl}${path}`,
+    changeFrequency: "monthly" as const,
+    priority: 0.5,
+  }));
+
   const toolUrls = tools
     .filter((tool) => !tool.comingSoon)
     .map((tool) => ({
@@ -18,6 +24,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
       changeFrequency: "weekly" as const,
       priority: 1,
     },
+    ...staticUrls,
     ...toolUrls,
   ];
 }

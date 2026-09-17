@@ -1294,6 +1294,44 @@ export default function CropImagePage() {
 
         )}
 
+
+        <section className="mx-auto mt-16 max-w-6xl rounded-[32px] border border-slate-200 bg-white px-6 py-10 shadow-sm md:px-10">
+          <div className="mx-auto max-w-3xl text-center">
+            <h2 className="text-3xl font-black tracking-[-0.03em] text-slate-950 md:text-4xl">How to crop an image online</h2>
+            <p className="mt-4 text-base leading-7 text-slate-600">Choose a JPG, PNG or WebP image, adjust the crop area or use an aspect-ratio preset, then export the result in your preferred image format.</p>
+          </div>
+          <div className="mt-8 grid gap-5 md:grid-cols-3">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+              <h3 className="font-black text-slate-950">1. Add your image</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-600">Upload a JPG, PNG or WebP file and preview it directly in the crop tool.</p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+              <h3 className="font-black text-slate-950">2. Set the crop area</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-600">Drag and resize the crop box, choose an aspect ratio, or enter exact crop width and height values.</p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+              <h3 className="font-black text-slate-950">3. Export and download</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-600">Save the cropped result as PNG, JPG or WebP and download it when you are finished.</p>
+            </div>
+          </div>
+        </section>
+
+        <section className="mx-auto mt-8 max-w-6xl grid gap-6 md:grid-cols-2">
+          <div className="rounded-[28px] border border-slate-200 bg-white p-7 shadow-sm">
+            <h2 className="text-2xl font-black tracking-[-0.02em] text-slate-950">Flexible crop controls</h2>
+            <p className="mt-3 text-base leading-7 text-slate-600">Use free cropping for custom framing, choose a preset aspect ratio, or enter exact pixel dimensions when you need a specific image size.</p>
+          </div>
+          <div className="rounded-[28px] border border-slate-200 bg-white p-7 shadow-sm">
+            <h2 className="text-2xl font-black tracking-[-0.02em] text-slate-950">Choose your output format</h2>
+            <p className="mt-3 text-base leading-7 text-slate-600">Export your cropped image as PNG, JPG or WebP depending on the format that works best for your website, social media or other project.</p>
+          </div>
+        </section>
+
+        <section className="mx-auto mt-8 max-w-6xl rounded-[28px] border border-violet-100 bg-violet-50/60 p-7 md:p-9">
+          <h2 className="text-2xl font-black tracking-[-0.02em] text-slate-950">Crop JPG, PNG and WebP images</h2>
+          <p className="mt-3 max-w-4xl text-base leading-7 text-slate-600">Toolijo supports JPG, JPEG, PNG and WebP images for cropping. Adjust the frame visually or use exact dimensions, then download the cropped image in your selected format.</p>
+        </section>
+
       </section>
 
     </main>

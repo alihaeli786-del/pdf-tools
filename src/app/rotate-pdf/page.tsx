@@ -645,6 +645,39 @@ export default function RotatePdfPage() {
             uploaded to a conversion server.
           </p>
         </div>
+
+        <section className="mx-auto mt-16 max-w-6xl rounded-[32px] border border-slate-200 bg-white px-6 py-10 shadow-sm md:px-10">
+          <div className="mx-auto max-w-3xl text-center">
+            <h2 className="text-3xl font-black tracking-[-0.03em] text-slate-950 md:text-4xl">How to rotate a PDF online</h2>
+            <p className="mt-4 text-base leading-7 text-slate-600">Upload your PDF, rotate individual pages or every page together, then download the updated document.</p>
+          </div>
+          <div className="mt-8 grid gap-5 md:grid-cols-3">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+              <h3 className="font-black text-slate-950">1. Upload your PDF</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-600">Choose a PDF file and preview its pages directly in your browser.</p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+              <h3 className="font-black text-slate-950">2. Rotate the pages</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-600">Rotate pages left or right individually, or rotate every page in the document at once.</p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+              <h3 className="font-black text-slate-950">3. Download the PDF</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-600">Review the page orientation and download the rotated PDF when everything looks correct.</p>
+            </div>
+          </div>
+        </section>
+
+        <section className="mx-auto mt-8 max-w-6xl grid gap-6 md:grid-cols-2">
+          <div className="rounded-[28px] border border-slate-200 bg-white p-7 shadow-sm">
+            <h2 className="text-2xl font-black tracking-[-0.02em] text-slate-950">Rotate one page or the whole PDF</h2>
+            <p className="mt-3 text-base leading-7 text-slate-600">Fix a single page that is sideways or apply the same rotation to every page when the whole document needs a consistent orientation.</p>
+          </div>
+          <div className="rounded-[28px] border border-slate-200 bg-white p-7 shadow-sm">
+            <h2 className="text-2xl font-black tracking-[-0.02em] text-slate-950">Private browser-based processing</h2>
+            <p className="mt-3 text-base leading-7 text-slate-600">Your PDF is processed locally in your browser and does not need to be uploaded to a remote conversion server.</p>
+          </div>
+        </section>
+
       </section>
     </main>
   );

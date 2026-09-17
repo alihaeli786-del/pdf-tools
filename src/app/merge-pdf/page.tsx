@@ -611,6 +611,39 @@ const reorderByDrag = (
     </>
   )}
 </div>
+
+        <section className="mx-auto mt-16 max-w-6xl rounded-[32px] border border-slate-200 bg-white px-6 py-10 shadow-sm md:px-10">
+          <div className="mx-auto max-w-3xl text-center">
+            <h2 className="text-3xl font-black tracking-[-0.03em] text-slate-950 md:text-4xl">How to merge PDF files online</h2>
+            <p className="mt-4 text-base leading-7 text-slate-600">Add two or more PDF files, arrange them in the order you want, merge them into one document, then download the finished PDF.</p>
+          </div>
+          <div className="mt-8 grid gap-5 md:grid-cols-3">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+              <h3 className="font-black text-slate-950">1. Add your PDF files</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-600">Choose multiple PDFs or drag and drop them into the merge workspace.</p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+              <h3 className="font-black text-slate-950">2. Arrange the file order</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-600">Drag PDF files into the order you want and remove any document you do not need.</p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+              <h3 className="font-black text-slate-950">3. Merge and download</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-600">Combine the selected files into one PDF and download the merged document when it is ready.</p>
+            </div>
+          </div>
+        </section>
+
+        <section className="mx-auto mt-8 max-w-6xl grid gap-6 md:grid-cols-2">
+          <div className="rounded-[28px] border border-slate-200 bg-white p-7 shadow-sm">
+            <h2 className="text-2xl font-black tracking-[-0.02em] text-slate-950">Control the PDF order before merging</h2>
+            <p className="mt-3 text-base leading-7 text-slate-600">Preview your selected PDFs and reorder them before merging so the final document follows the sequence you need.</p>
+          </div>
+          <div className="rounded-[28px] border border-slate-200 bg-white p-7 shadow-sm">
+            <h2 className="text-2xl font-black tracking-[-0.02em] text-slate-950">Private browser-based processing</h2>
+            <p className="mt-3 text-base leading-7 text-slate-600">Your PDF files are processed in your browser and do not need to be uploaded to a remote conversion server.</p>
+          </div>
+        </section>
+
       </section>
 </main>
 );

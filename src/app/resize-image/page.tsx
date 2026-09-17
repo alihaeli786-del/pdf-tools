@@ -1303,6 +1303,44 @@ export default function ResizeImagePage() {
 
         )}
 
+
+        <section className="mx-auto mt-16 max-w-6xl rounded-[32px] border border-slate-200 bg-white px-6 py-10 shadow-sm md:px-10">
+          <div className="mx-auto max-w-3xl text-center">
+            <h2 className="text-3xl font-black tracking-[-0.03em] text-slate-950 md:text-4xl">How to resize images online</h2>
+            <p className="mt-4 text-base leading-7 text-slate-600">Choose one or more JPG, PNG or WebP images, resize them by exact dimensions or percentage, then download the resized files.</p>
+          </div>
+          <div className="mt-8 grid gap-5 md:grid-cols-3">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+              <h3 className="font-black text-slate-950">1. Add your images</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-600">Upload one or multiple JPG, PNG or WebP files and preview their original dimensions.</p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+              <h3 className="font-black text-slate-950">2. Choose a resize method</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-600">Enter a target width and height or resize proportionally by percentage.</p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+              <h3 className="font-black text-slate-950">3. Download the resized files</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-600">Review the new image dimensions and download each resized result when it is ready.</p>
+            </div>
+          </div>
+        </section>
+
+        <section className="mx-auto mt-8 max-w-6xl grid gap-6 md:grid-cols-2">
+          <div className="rounded-[28px] border border-slate-200 bg-white p-7 shadow-sm">
+            <h2 className="text-2xl font-black tracking-[-0.02em] text-slate-950">Resize by pixels or percentage</h2>
+            <p className="mt-3 text-base leading-7 text-slate-600">Use exact width and height values when you need specific dimensions, or scale images by percentage for quick proportional resizing.</p>
+          </div>
+          <div className="rounded-[28px] border border-slate-200 bg-white p-7 shadow-sm">
+            <h2 className="text-2xl font-black tracking-[-0.02em] text-slate-950">Control the aspect ratio</h2>
+            <p className="mt-3 text-base leading-7 text-slate-600">Keep the aspect ratio locked to avoid stretching, or unlock it when you need an exact width and height.</p>
+          </div>
+        </section>
+
+        <section className="mx-auto mt-8 max-w-6xl rounded-[28px] border border-violet-100 bg-violet-50/60 p-7 md:p-9">
+          <h2 className="text-2xl font-black tracking-[-0.02em] text-slate-950">Resize JPG, PNG and WebP images</h2>
+          <p className="mt-3 max-w-4xl text-base leading-7 text-slate-600">Toolijo supports JPG, JPEG, PNG and WebP image resizing. Process multiple images in one session while keeping control over dimensions and proportions.</p>
+        </section>
+
       </section>
 
     </main>

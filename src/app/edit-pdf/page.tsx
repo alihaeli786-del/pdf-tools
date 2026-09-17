@@ -5071,6 +5071,85 @@ const shapeFillColor = hexToPdfRgb(shape.fillColor);
             )}
           </div>
         </section>
+
+        <section className="mx-auto w-full max-w-6xl px-6 pb-16 pt-4">
+          <div className="rounded-[32px] border border-slate-200 bg-white px-6 py-10 shadow-sm md:px-10 md:py-12">
+            <div className="mx-auto max-w-3xl text-center">
+              <h2 className="text-3xl font-black tracking-[-0.03em] text-slate-950 md:text-4xl">How to edit a PDF online</h2>
+              <p className="mt-4 text-base leading-7 text-slate-600">Open a PDF in Toolijo, edit text and other page elements directly in your browser, review each page, then apply your changes and download the edited PDF.</p>
+            </div>
+
+            <div className="mt-10 grid gap-5 md:grid-cols-2 lg:grid-cols-3">
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                <h3 className="font-black text-slate-950">1. Upload your PDF</h3>
+                <p className="mt-2 text-sm leading-6 text-slate-600">Choose a PDF file or drag and drop it into the editor. Toolijo opens the document so you can work page by page.</p>
+              </div>
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                <h3 className="font-black text-slate-950">2. Edit existing PDF text</h3>
+                <p className="mt-2 text-sm leading-6 text-slate-600">Click existing text to edit it inline. Use the text toolbar to change bold, italic, font size, font family and color, create a link, move text, duplicate it or delete it.</p>
+              </div>
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                <h3 className="font-black text-slate-950">3. Add text, images or a signature</h3>
+                <p className="mt-2 text-sm leading-6 text-slate-600">Use Text to add new text, Images to place a PNG or JPG, or Sign to create a signature by typing, drawing, uploading an image or using your camera.</p>
+              </div>
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                <h3 className="font-black text-slate-950">4. Add links, forms and shapes</h3>
+                <p className="mt-2 text-sm leading-6 text-slate-600">Add links to a URL, email address, phone number or another PDF page. You can also create text fields, multiline fields, checkboxes, radio buttons, drop-down lists, rectangles, circles, lines and arrows.</p>
+              </div>
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                <h3 className="font-black text-slate-950">5. Mark up and manage pages</h3>
+                <p className="mt-2 text-sm leading-6 text-slate-600">Use Whiteout and Annotate for page markup. Navigate between pages, zoom in or out, rotate a page, insert a new page or delete a page when needed.</p>
+              </div>
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                <h3 className="font-black text-slate-950">6. Apply changes and download</h3>
+                <p className="mt-2 text-sm leading-6 text-slate-600">Review the document and click Apply changes when you are finished. Toolijo creates the edited PDF for you to download.</p>
+              </div>
+            </div>
+
+            <div className="mt-12">
+              <h2 className="text-2xl font-black tracking-[-0.02em] text-slate-950 md:text-3xl">PDF editing features in Toolijo</h2>
+              <div className="mt-6 grid gap-5 md:grid-cols-2">
+                <div className="rounded-2xl border border-slate-200 p-5">
+                  <h3 className="font-black text-slate-950">Text and typography controls</h3>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">Edit text directly on the PDF and control font family, size, bold, italic and text color. Selected text can also be moved, duplicated, deleted or turned into a link.</p>
+                </div>
+                <div className="rounded-2xl border border-slate-200 p-5">
+                  <h3 className="font-black text-slate-950">Images and signatures</h3>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">Add PNG or JPG images to a page and reposition them. Signatures can be typed, drawn, uploaded as an image or captured with your device camera.</p>
+                </div>
+                <div className="rounded-2xl border border-slate-200 p-5">
+                  <h3 className="font-black text-slate-950">Forms, links and shapes</h3>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">Create common PDF form fields, add interactive links and place configurable shapes such as rectangles, circles, lines and arrows.</p>
+                </div>
+                <div className="rounded-2xl border border-slate-200 p-5">
+                  <h3 className="font-black text-slate-950">Page and markup controls</h3>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">Use zoom and rotation while editing, move through multi-page documents, insert or delete pages, add annotations and cover unwanted page areas with Whiteout.</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-10 grid gap-5 md:grid-cols-2">
+              <div className="rounded-2xl border border-blue-200 bg-blue-50 p-5">
+                <h2 className="text-lg font-black text-slate-950">Browser-based PDF editing</h2>
+                <p className="mt-2 text-sm leading-6 text-slate-700">The editor reads and processes your PDF in your browser instead of sending it to a PDF conversion API. Added images are also read locally in the browser before they are embedded into the edited PDF.</p>
+              </div>
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
+                <h2 className="text-lg font-black text-slate-950">A note about scanned PDFs</h2>
+                <p className="mt-2 text-sm leading-6 text-slate-700">Direct editing of existing text works best with text-based PDFs. Toolijo does not currently run OCR on scanned image-only pages, so text inside a scan may not be available for inline editing.</p>
+              </div>
+            </div>
+
+            <div className="mt-10 rounded-2xl border border-slate-200 bg-slate-50 p-6">
+              <h2 className="text-xl font-black text-slate-950">Tips for better PDF editing</h2>
+              <ul className="mt-4 space-y-2 text-sm leading-6 text-slate-600">
+                <li>Use a text-based PDF when you want to edit existing words or numbers directly.</li>
+                <li>Zoom in for precise text, image, annotation, form or shape placement.</li>
+                <li>Check every edited page before applying changes and downloading the final PDF.</li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
       </main>
     );
   }

@@ -884,6 +884,39 @@ export default function JpgToPdfPage() {
             </aside>
           </div>
         )}
+
+        <section className="mx-auto mt-16 max-w-6xl rounded-[32px] border border-slate-200 bg-white px-6 py-10 shadow-sm md:px-10">
+          <div className="mx-auto max-w-3xl text-center">
+            <h2 className="text-3xl font-black tracking-[-0.03em] text-slate-950 md:text-4xl">How to convert JPG to PDF online</h2>
+            <p className="mt-4 text-base leading-7 text-slate-600">Upload JPG, JPEG or PNG images, arrange them in the order you want, choose your PDF page settings, then create and download one PDF document.</p>
+          </div>
+          <div className="mt-8 grid gap-5 md:grid-cols-3">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+              <h3 className="font-black text-slate-950">1. Upload your images</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-600">Choose one or multiple JPG, JPEG or PNG images from your device.</p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+              <h3 className="font-black text-slate-950">2. Arrange and customize</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-600">Reorder the images, then choose Fit image or A4, set orientation where available, and adjust the page margin.</p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+              <h3 className="font-black text-slate-950">3. Create your PDF</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-600">Create one PDF containing your images in the selected order and download the finished document.</p>
+            </div>
+          </div>
+        </section>
+
+        <section className="mx-auto mt-8 max-w-6xl grid gap-6 md:grid-cols-2">
+          <div className="rounded-[28px] border border-slate-200 bg-white p-7 shadow-sm">
+            <h2 className="text-2xl font-black tracking-[-0.02em] text-slate-950">Control image order and PDF layout</h2>
+            <p className="mt-3 text-base leading-7 text-slate-600">Drag images into the order you need and choose page size, orientation and margins before creating the PDF.</p>
+          </div>
+          <div className="rounded-[28px] border border-slate-200 bg-white p-7 shadow-sm">
+            <h2 className="text-2xl font-black tracking-[-0.02em] text-slate-950">Private browser-based processing</h2>
+            <p className="mt-3 text-base leading-7 text-slate-600">Your images are processed locally in your browser while the PDF is created.</p>
+          </div>
+        </section>
+
       </section>
     </main>
   );
