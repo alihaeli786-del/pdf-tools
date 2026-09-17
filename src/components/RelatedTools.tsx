@@ -58,6 +58,7 @@ export default function RelatedTools({ currentHref }: { currentHref: string }) {
         <div className="mt-8 flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-slate-100 pt-6 text-sm text-slate-500">
           <a href="/about" className="transition hover:text-violet-700">About Us</a>
           <a href="/privacy" className="transition hover:text-violet-700">Privacy Policy</a>
+          <a href="/cookies" className="transition hover:text-violet-700">Cookie Policy</a>
           <a href="/terms" className="transition hover:text-violet-700">Terms of Use</a>
           <a href="/contact" className="transition hover:text-violet-700">Contact</a>
         </div>

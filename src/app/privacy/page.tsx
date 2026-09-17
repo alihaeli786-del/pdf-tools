@@ -46,8 +46,8 @@ export default function PrivacyPage() {
           </PolicySection>
 
           <PolicySection title="5. Cookies, analytics and advertising">
-            <p>Toolijo currently does not use Google Analytics, Google Tag Manager, AdSense, Meta Pixel, Hotjar, Microsoft Clarity or a similar advertising or behavioral analytics system in the application.</p>
-            <p>If analytics, advertising or other cookie-based services are introduced in the future, this Privacy Policy and any required consent controls will be updated as appropriate.</p>
+            <p>Toolijo uses Google Analytics only after you choose to accept analytics through our consent banner. Google Analytics helps us understand general website usage, such as visits, pages and tools used, browser or device information, and engagement patterns.</p>
+            <p>If you decline analytics, Google Analytics is not loaded by Toolijo. Your analytics preference is stored in your browser so the website can remember your choice. Toolijo does not currently use Google Tag Manager, AdSense, Meta Pixel, Hotjar or Microsoft Clarity.</p>
           </PolicySection>
 
           <PolicySection title="6. Passwords and protected PDFs">

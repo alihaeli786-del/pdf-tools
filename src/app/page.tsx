@@ -1064,6 +1064,13 @@ export default function Home() {
                 </a>
 
                 <a
+                  href="/cookies"
+                  className="block transition hover:text-violet-700"
+                >
+                  Cookie Policy
+                </a>
+
+                <a
                   href="/terms"
                   className="block transition hover:text-violet-700"
                 >

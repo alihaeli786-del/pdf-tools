@@ -4,7 +4,7 @@ import { tools } from "@/data/tools";
 export default function sitemap(): MetadataRoute.Sitemap {
   const baseUrl = "https://toolijo.com";
 
-  const staticUrls = ["/about", "/privacy", "/terms", "/contact"].map((path) => ({
+  const staticUrls = ["/about", "/privacy", "/terms", "/contact", "/cookies"].map((path) => ({
     url: `${baseUrl}${path}`,
     changeFrequency: "monthly" as const,
     priority: 0.5,
