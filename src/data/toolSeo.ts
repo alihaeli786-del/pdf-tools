@@ -1,6 +1,6 @@
 export const toolSeo = {
-  "/edit-pdf": { title: "Edit PDF Online - Free PDF Editor", description: "Edit PDF files online with Toolijo. Modify text, move content, manage pages and make PDF changes directly in your browser." },
-  "/merge-pdf": { title: "Merge PDF Online - Combine PDF Files Free", description: "Merge multiple PDF files online for free with Toolijo. Combine PDFs quickly in your browser with no complicated setup." },
+  "/edit-pdf": { title: "Edit PDF Online - Free PDF Editor", description: "Edit PDF files online for free with Toolijo. Modify text, add images and signatures, manage pages, annotate documents and download your edited PDF." },
+  "/merge-pdf": { title: "Merge PDF Online - Combine PDF Files Free", description: "Merge PDF files online for free with Toolijo. Arrange PDFs in any order, combine them into one document and download your merged PDF in your browser." },
   "/split-pdf": { title: "Split PDF Online - Separate PDF Pages Free", description: "Split PDF files online with Toolijo. Extract or separate PDF pages quickly and create the PDF files you need." },
   "/pdf-to-jpg": { title: "PDF to JPG Converter - Convert PDF Pages to Images", description: "Convert PDF pages to JPG images online with Toolijo. Turn PDF pages into high-quality image files quickly and easily." },
   "/jpg-to-pdf": { title: "JPG to PDF Converter - Convert Images to PDF Free", description: "Convert JPG images to PDF online with Toolijo. Combine image files into a clean PDF document quickly and easily." },

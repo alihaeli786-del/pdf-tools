@@ -341,7 +341,7 @@ export default function Home() {
 
           <h1 className="mx-auto mt-5 max-w-5xl text-4xl font-black tracking-[-0.045em] text-slate-950 md:text-6xl md:leading-[1.04]">
 
-            Everything you need to work with files.
+            Free Online PDF & Image Tools.
 
             <span className="mt-2 block bg-gradient-to-r from-violet-600 via-indigo-600 to-blue-600 bg-clip-text text-transparent">
               Fast. Simple. All in one place.
@@ -351,7 +351,7 @@ export default function Home() {
 
 
           <p className="mx-auto mt-5 max-w-2xl text-base leading-7 text-slate-600 md:text-lg md:leading-8">
-            Edit, convert, organize and secure PDFs, Word documents and images with a growing collection of fast, focused tools designed for everyday work.
+            Use free online PDF tools to edit, convert, merge, split, organize and protect PDF files, plus fast image tools to convert, compress, resize, crop and remove backgrounds.
           </p>
 {/* Working Search */}
           <div ref={searchBoxRef} className="relative mx-auto mt-7 max-w-2xl text-left">
@@ -503,11 +503,11 @@ export default function Home() {
               </div>
 
               <h2 className="text-3xl font-black tracking-tight text-slate-950 md:text-4xl">
-                Popular tools
+                Popular Free PDF & Image Tools
               </h2>
 
               <p className="mt-3 max-w-xl text-sm leading-6 text-slate-600 md:text-base">
-                Quick access to the tools people need most for documents and images.
+                Quick access to popular free PDF and image tools for everyday file tasks.
               </p>
             </div>
 

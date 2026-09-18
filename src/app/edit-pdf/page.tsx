@@ -5029,11 +5029,11 @@ const shapeFillColor = hexToPdfRgb(shape.fillColor);
             <FileInput className="mx-auto text-blue-600" size={48} />
 
             <h1 className="mt-5 text-4xl font-bold text-slate-950">
-              Edit PDF
+              Edit PDF Online - Free PDF Editor
             </h1>
 
             <p className="mx-auto mt-4 max-w-xl text-slate-600">
-              Upload a PDF and edit it directly in your browser.
+              Upload a PDF to edit text, add images, signatures, forms and annotations online directly in your browser.
             </p>
 
             <div

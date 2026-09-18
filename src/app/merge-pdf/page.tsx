@@ -238,12 +238,11 @@ const reorderByDrag = (
           </div>
 
           <h1 className="text-4xl font-bold tracking-tight text-slate-900 md:text-5xl">
-            Merge PDF
+            Merge PDF Online - Combine PDF Files Free
           </h1>
 
           <p className="mt-4 text-lg text-slate-600">
-            Combine multiple PDF files into one document.
-            Your files stay in your browser.
+            Combine multiple PDF files into one document online for free. Arrange your files in the order you want and merge them directly in your browser.
           </p>
         </div>
 
