@@ -144,7 +144,7 @@ export default function Home() {
     return (
       <div
         key={tool.title}
-        className="relative flex h-full flex-col rounded-2xl border border-slate-200 bg-slate-50 p-4 text-left shadow-sm opacity-80 sm:p-6"
+        className="relative flex h-full flex-col rounded-2xl border border-slate-200 bg-slate-50 p-4 text-left shadow-sm sm:p-6"
       >
         <span className="absolute right-3 top-3 rounded-full bg-amber-100 px-2.5 py-1 text-[9px] font-black tracking-wide text-amber-800 sm:right-4 sm:top-4 sm:px-3 sm:text-xs">
           COMING SOON
