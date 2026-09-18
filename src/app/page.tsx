@@ -146,7 +146,7 @@ export default function Home() {
         key={tool.title}
         className="relative flex h-full flex-col rounded-2xl border border-slate-200 bg-slate-50 p-4 text-left shadow-sm opacity-80 sm:p-6"
       >
-        <span className="absolute right-3 top-3 rounded-full bg-amber-100 px-2.5 py-1 text-[9px] font-black tracking-wide text-amber-700 sm:right-4 sm:top-4 sm:px-3 sm:text-xs">
+        <span className="absolute right-3 top-3 rounded-full bg-amber-100 px-2.5 py-1 text-[9px] font-black tracking-wide text-amber-800 sm:right-4 sm:top-4 sm:px-3 sm:text-xs">
           COMING SOON
         </span>
 
@@ -158,7 +158,7 @@ export default function Home() {
           {tool.title}
         </h3>
 
-        <p className="mt-2 text-sm leading-6 text-slate-500">
+        <p className="mt-2 text-sm leading-6 text-slate-700">
           {tool.description}
         </p>
 
@@ -472,7 +472,7 @@ export default function Home() {
           </div>
 
 
-          <div className="mt-4 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs font-semibold text-slate-500">
+          <div className="mt-4 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs font-semibold text-slate-600">
 
             <span>No complicated setup</span>
 
@@ -849,7 +849,7 @@ export default function Home() {
 
               <div className="relative rounded-[24px] border border-slate-200 bg-slate-50/70 p-6">
 
-                <div className="absolute right-5 top-5 text-5xl font-black text-slate-900/[0.05]">
+                <div className="absolute right-5 top-5 text-5xl font-black text-slate-500">
                   01
                 </div>
 
@@ -870,7 +870,7 @@ export default function Home() {
 
               <div className="relative rounded-[24px] border border-slate-200 bg-slate-50/70 p-6">
 
-                <div className="absolute right-5 top-5 text-5xl font-black text-slate-900/[0.05]">
+                <div className="absolute right-5 top-5 text-5xl font-black text-slate-500">
                   02
                 </div>
 
@@ -891,7 +891,7 @@ export default function Home() {
 
               <div className="relative rounded-[24px] border border-slate-200 bg-slate-50/70 p-6">
 
-                <div className="absolute right-5 top-5 text-5xl font-black text-slate-900/[0.05]">
+                <div className="absolute right-5 top-5 text-5xl font-black text-slate-500">
                   03
                 </div>
 
