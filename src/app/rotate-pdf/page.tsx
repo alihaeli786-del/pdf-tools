@@ -344,13 +344,11 @@ export default function RotatePdfPage() {
           </div>
 
           <h1 className="mt-5 text-4xl font-bold tracking-tight text-slate-950 sm:text-5xl">
-            Rotate PDF
+            Rotate PDF Online - Rotate PDF Pages Free
           </h1>
 
           <p className="mx-auto mt-4 max-w-2xl text-base leading-7 text-slate-600 sm:text-lg">
-            Rotate individual PDF pages or
-            rotate every page at once, then
-            download your updated PDF.
+            Rotate PDF pages online for free. Rotate individual pages or every page at once, then download your corrected PDF.
           </p>
 
           <div className="mt-5 flex flex-wrap justify-center gap-2 text-xs font-semibold text-slate-500">

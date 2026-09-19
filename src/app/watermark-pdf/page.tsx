@@ -415,12 +415,11 @@ export default function WatermarkPdfPage() {
           </div>
 
           <h1 className="text-4xl font-bold tracking-tight text-slate-900 md:text-5xl">
-            Watermark PDF
+            Add Watermark to PDF Online Free
           </h1>
 
           <p className="mt-4 text-lg text-slate-600">
-            Add text, image or logo watermarks to your PDF.
-            Your files stay in your browser.
+            Add text, image or logo watermarks to PDF files online for free. Customize the watermark and process your PDF directly in your browser.
           </p>
         </div>
 

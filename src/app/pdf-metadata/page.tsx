@@ -214,12 +214,11 @@ export default function PdfMetadataPage() {
           </div>
 
           <h1 className="text-4xl font-bold tracking-tight text-slate-900 md:text-5xl">
-            PDF Metadata Editor
+            Edit PDF Metadata Online - PDF Properties Editor
           </h1>
 
           <p className="mt-4 text-lg text-slate-600">
-            View and edit document information stored inside your PDF.
-            Your file stays in your browser.
+            Edit PDF metadata online for free. View and update title, author, subject, keywords and other document properties directly in your browser.
           </p>
         </div>
 

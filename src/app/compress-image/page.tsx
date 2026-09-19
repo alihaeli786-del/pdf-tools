@@ -736,14 +736,14 @@ export default function CompressImagePage() {
           </div>
 
           <h1 className="mt-5 text-4xl font-black tracking-[-0.035em] text-slate-950 md:text-6xl">
-            Compress images.
+            Compress Images Online
             <span className="block bg-gradient-to-r from-violet-600 via-indigo-600 to-blue-600 bg-clip-text text-transparent">
-              Keep them looking great.
+              Reduce File Size Free
             </span>
           </h1>
 
           <p className="mx-auto mt-5 max-w-2xl text-base leading-7 text-slate-600 md:text-lg">
-            Reduce image file size directly in your browser without uploading your files to a server.
+            Compress JPG, PNG and WebP images online for free. Reduce file size, adjust quality and process images directly in your browser without uploading them to a server.
           </p>
 
         </div>
@@ -1480,7 +1480,7 @@ export default function CompressImagePage() {
         <section className="mx-auto mt-8 max-w-6xl grid gap-6 md:grid-cols-2">
           <div className="rounded-[28px] border border-slate-200 bg-white p-7 shadow-sm">
             <h2 className="text-2xl font-black tracking-[-0.02em] text-slate-950">Flexible image compression</h2>
-            <p className="mt-3 text-base leading-7 text-slate-600">Use target-size compression when you need to stay under a file-size limit, or choose manual quality when you want more control over image quality and file size.</p>
+            <p className="mt-3 text-base leading-7 text-slate-600">Compress images to 50 KB or another target file size while Toolijo automatically adjusts quality and dimensions to help preserve visual detail. You can also use manual quality controls when you want more control over image quality and file size.</p>
           </div>
           <div className="rounded-[28px] border border-slate-200 bg-white p-7 shadow-sm">
             <h2 className="text-2xl font-black tracking-[-0.02em] text-slate-950">Private browser-based processing</h2>

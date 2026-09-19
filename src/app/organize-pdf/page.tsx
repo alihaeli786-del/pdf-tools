@@ -315,12 +315,11 @@ export default function OrganizePdfPage() {
           </div>
 
           <h1 className="mt-5 text-4xl font-bold tracking-tight text-slate-950 sm:text-5xl">
-            Organize PDF
+            Organize PDF Pages - Reorder PDF Online Free
           </h1>
 
           <p className="mx-auto mt-4 max-w-2xl text-base leading-7 text-slate-600 sm:text-lg">
-            Rearrange PDF pages, remove unwanted
-            pages, and download a clean organized PDF.
+            Organize PDF pages online for free. Reorder pages, remove unwanted pages and download a clean PDF in the order you need.
           </p>
 
           <div className="mt-5 flex flex-wrap justify-center gap-2 text-xs font-semibold text-slate-500">

@@ -736,12 +736,11 @@ export default function PdfToWordPage() {
           </div>
 
           <h1 className="text-4xl font-bold tracking-tight text-slate-900 md:text-5xl">
-            PDF to Word
+            PDF to Word Converter - Convert PDF to DOCX Online
           </h1>
 
           <p className="mt-4 text-lg text-slate-600">
-            Convert PDF documents into editable Word files.
-            Your file stays in your browser.
+            Convert text-based PDF files to editable Word documents online for free. Create a DOCX file directly in your browser while keeping the original PDF unchanged.
           </p>
         </div>
 

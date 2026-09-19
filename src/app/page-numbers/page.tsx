@@ -405,12 +405,11 @@ export default function PageNumbersPdfPage() {
           </div>
 
           <h1 className="text-4xl font-bold tracking-tight text-slate-900 md:text-5xl">
-            Page Numbers PDF
+            Add Page Numbers to PDF Online Free
           </h1>
 
           <p className="mt-4 text-lg text-slate-600">
-            Add professional page numbers to your PDF.
-            Your files stay in your browser.
+            Add page numbers to PDF files online for free. Customize the numbering style and position, preview the result and download your finished PDF.
           </p>
         </div>
 

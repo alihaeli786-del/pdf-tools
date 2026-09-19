@@ -2170,12 +2170,11 @@ export default function PdfToExcelPage() {
           </div>
 
           <h1 className="text-4xl font-bold tracking-tight text-slate-900 md:text-5xl">
-            PDF to Excel
+            PDF to Excel Converter - PDF to XLSX Online
           </h1>
 
           <p className="mt-4 text-lg text-slate-600">
-            Extract tables and structured data from PDF
-            documents into editable Excel spreadsheets.
+            Convert tables and supported structured data from PDF files to editable Excel spreadsheets online for free. Create an XLSX workbook directly in your browser.
           </p>
         </div>
 

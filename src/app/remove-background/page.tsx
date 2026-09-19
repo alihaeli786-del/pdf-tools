@@ -1480,17 +1480,16 @@ export default function RemoveBackgroundPage() {
 
           <h1 className="mt-5 text-4xl font-black tracking-[-0.035em] text-slate-950 md:text-6xl">
 
-            Remove image backgrounds.
-
+            Remove Image Background Online
             <span className="block bg-gradient-to-r from-violet-600 via-indigo-600 to-blue-600 bg-clip-text text-transparent">
-              Clean, transparent results.
+              Free Full-Resolution Download
             </span>
 
           </h1>
 
 
           <p className="mx-auto mt-5 max-w-2xl text-base leading-7 text-slate-600 md:text-lg">
-            Automatically separate your subject from the background using AI directly in your browser.
+            Remove backgrounds from JPG, PNG and WebP images online for free with AI. Download a full-resolution transparent PNG with no login or sign-up required.
           </p>
 
         </div>

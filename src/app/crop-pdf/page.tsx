@@ -696,12 +696,11 @@ export default function CropPdfPage() {
           </div>
 
           <h1 className="text-4xl font-bold tracking-tight text-slate-900 md:text-5xl">
-            Crop PDF
+            Crop PDF Online - Trim PDF Pages Free
           </h1>
 
           <p className="mt-4 text-lg text-slate-600">
-            Visually select the exact area you want to keep.
-            Your files stay in your browser.
+            Crop PDF pages online for free. Select the exact area you want to keep, trim unwanted margins and process your PDF directly in your browser.
           </p>
         </div>
 

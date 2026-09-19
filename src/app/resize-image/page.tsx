@@ -611,14 +611,14 @@ export default function ResizeImagePage() {
           </div>
 
           <h1 className="mt-5 text-4xl font-black tracking-[-0.035em] text-slate-950 md:text-6xl">
-            Resize images.
+            Resize Images Online
             <span className="block bg-gradient-to-r from-violet-600 via-indigo-600 to-blue-600 bg-clip-text text-transparent">
-              Exactly how you need.
+              Change Dimensions Free
             </span>
           </h1>
 
           <p className="mx-auto mt-5 max-w-2xl text-base leading-7 text-slate-600 md:text-lg">
-            Change image dimensions while preserving quality and aspect ratio directly in your browser.
+            Resize JPG, PNG and WebP images online for free. Change width and height by exact dimensions or percentage while preserving aspect ratio directly in your browser.
           </p>
 
         </div>

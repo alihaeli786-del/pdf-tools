@@ -232,12 +232,11 @@ export default function ProtectPdfPage() {
           </div>
 
           <h1 className="mt-5 text-4xl font-bold tracking-tight text-slate-950 sm:text-5xl">
-            Protect PDF
+            Protect PDF Online - Add Password to PDF Free
           </h1>
 
           <p className="mx-auto mt-4 max-w-2xl text-base leading-7 text-slate-600 sm:text-lg">
-            Add a secure password to your PDF
-            and prevent unauthorized access.
+            Protect PDF files online for free. Add a password to your PDF and download a secured copy to help prevent unauthorized access.
           </p>
 
           <div className="mt-5 flex flex-wrap justify-center gap-2 text-xs font-semibold text-slate-500">

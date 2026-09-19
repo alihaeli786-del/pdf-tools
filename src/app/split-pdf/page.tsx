@@ -333,12 +333,11 @@ const resultSectionRef = useRef<HTMLDivElement>(null);
           </div>
 
           <h1 className="text-4xl font-bold tracking-tight text-slate-950 md:text-5xl">
-            Split PDF
+            Split PDF Online - Separate PDF Pages Free
           </h1>
 
           <p className="mt-4 text-lg text-slate-600">
-            Separate PDF pages exactly the way you need.
-            Your file stays in your browser.
+            Split PDF files online for free. Separate or extract the pages you need and create new PDF files directly in your browser.
           </p>
         </div>
 

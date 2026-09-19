@@ -420,12 +420,11 @@ export default function JpgToPdfPage() {
           </div>
 
           <h1 className="mt-5 text-4xl font-bold tracking-tight text-slate-950 sm:text-5xl">
-            JPG to PDF
+            JPG to PDF Converter - Convert Images to PDF Free
           </h1>
 
           <p className="mx-auto mt-4 max-w-2xl text-base leading-7 text-slate-600 sm:text-lg">
-            Turn multiple JPG, JPEG or PNG images
-            into one professional PDF document.
+            Convert JPG, JPEG or PNG images to PDF online for free. Arrange your images and create one PDF document directly in your browser.
           </p>
 
           <div className="mt-5 flex flex-wrap items-center justify-center gap-2 text-xs font-semibold text-slate-500">

@@ -605,13 +605,11 @@ export default function UnlockPdfPage() {
           </div>
 
           <h1 className="mt-5 text-4xl font-bold tracking-tight text-slate-950 sm:text-5xl">
-            Unlock PDF
+            Unlock PDF Online - Remove PDF Password Protection
           </h1>
 
           <p className="mx-auto mt-4 max-w-2xl text-base leading-7 text-slate-600 sm:text-lg">
-            Unlock a protected PDF using
-            your password, or recover it
-            from password clues you remember.
+            Unlock password-protected PDF files online for free using your password, or recover access from password clues you remember.
           </p>
 
           <div className="mt-5 flex flex-wrap justify-center gap-2 text-xs font-semibold text-slate-500">

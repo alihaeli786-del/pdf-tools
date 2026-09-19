@@ -2340,15 +2340,14 @@ export default function ImageConverterPage() {
           </div>
 
           <h1 className="mt-5 text-4xl font-black tracking-[-0.035em] text-slate-950 md:text-6xl">
-            Convert images.
+            Image Converter Online
             <span className="block bg-gradient-to-r from-violet-600 via-indigo-600 to-blue-600 bg-clip-text text-transparent">
-              Keep the quality.
+              JPG, PNG, WebP & More
             </span>
           </h1>
 
           <p className="mx-auto mt-5 max-w-2xl text-base leading-7 text-slate-600 md:text-lg">
-            Fast batch image conversion with professional formats,
-            quality controls and private browser-based processing.
+            Convert JPG, PNG, WebP and other image formats online for free. Batch convert images, adjust quality and process files directly in your browser.
           </p>
 
           <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
@@ -2901,7 +2900,8 @@ export default function ImageConverterPage() {
         <section className="mx-auto mt-8 max-w-6xl grid gap-6 md:grid-cols-2">
           <div className="rounded-[28px] border border-slate-200 bg-white p-7 shadow-sm">
             <h2 className="text-2xl font-black tracking-[-0.02em] text-slate-950">Convert multiple image formats</h2>
-            <p className="mt-3 text-base leading-7 text-slate-600">Work with formats including JPG, PNG, WebP, BMP, GIF, SVG, ICO, HEIC, TIFF, TGA, AVIF, HDR, EXR and WBMP, with a wide range of output choices.</p>
+            <p className="mt-3 text-base leading-7 text-slate-600">Convert JPG, JPEG, PNG, WebP, BMP, GIF, SVG, ICO, HEIC, HEIF, TIFF, TIF, TGA, AVIF, HDR, EXR and WBMP images online. Export to JPG, PNG, WebP, BMP, TIFF, TGA, GIF, ICO, SVG, AVIF, HDR, EXR or WBMP directly in your browser.</p>
+            <p className="mt-3 text-base leading-7 text-slate-600">Popular conversions include HEIC to JPG, HEIC to PNG, WebP to JPG, WebP to PNG, PNG to JPG, JPG to PNG, JPG to WebP, PNG to WebP, AVIF to JPG, TIFF to JPG, BMP to JPG, GIF to JPG, SVG to PNG and JPG to ICO.</p>
           </div>
           <div className="rounded-[28px] border border-slate-200 bg-white p-7 shadow-sm">
             <h2 className="text-2xl font-black tracking-[-0.02em] text-slate-950">Private browser-based conversion</h2>

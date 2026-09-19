@@ -717,14 +717,14 @@ export default function CropImagePage() {
           </div>
 
           <h1 className="mt-5 text-4xl font-black tracking-[-0.035em] text-slate-950 md:text-6xl">
-            Crop your images.
+            Crop Images Online
             <span className="block bg-gradient-to-r from-violet-600 via-indigo-600 to-blue-600 bg-clip-text text-transparent">
-              Keep exactly what you need.
+              Free Image Crop Tool
             </span>
           </h1>
 
           <p className="mx-auto mt-5 max-w-2xl text-base leading-7 text-slate-600 md:text-lg">
-            Select the exact area you want and export your cropped image directly in your browser.
+            Crop JPG, PNG and WebP images online for free. Select the exact area you want, remove unwanted parts and export the cropped image directly in your browser.
           </p>
 
         </div>

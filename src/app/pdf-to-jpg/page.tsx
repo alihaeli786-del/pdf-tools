@@ -263,12 +263,11 @@ export default function PdfToJpgPage() {
             </div>
 
             <h1 className="mt-5 text-4xl font-bold tracking-tight text-slate-950 sm:text-5xl">
-              PDF to JPG
+              PDF to JPG Converter - Convert PDF Pages to Images
             </h1>
 
             <p className="mx-auto mt-4 max-w-2xl text-base leading-7 text-slate-600 sm:text-lg">
-              Convert every PDF page into a crisp,
-              high-quality JPG image in just a few seconds.
+              Convert PDF pages to JPG images online for free. Choose your image quality and download each page as a high-quality JPG.
             </p>
           </div>
         </div>
