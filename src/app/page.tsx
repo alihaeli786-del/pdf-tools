@@ -144,7 +144,7 @@ export default function Home() {
     return (
       <div
         key={tool.title}
-        className="relative flex h-full flex-col rounded-2xl border border-slate-200 bg-slate-50 p-4 text-left shadow-sm sm:p-6"
+        className="relative flex h-full flex-col rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm sm:p-6"
       >
         <span className="absolute right-3 top-3 rounded-full bg-amber-100 px-2.5 py-1 text-[9px] font-black tracking-wide text-amber-800 sm:right-4 sm:top-4 sm:px-3 sm:text-xs">
           COMING SOON
@@ -161,12 +161,6 @@ export default function Home() {
         <p className="mt-2 text-sm leading-6 text-slate-700">
           {tool.description}
         </p>
-
-        <div className="mt-auto pt-5">
-          <span className="inline-flex w-full cursor-not-allowed items-center justify-center rounded-xl bg-gradient-to-r from-violet-600 to-blue-600 px-3 py-2.5 text-xs font-bold text-white shadow-sm sm:px-4 sm:text-sm">
-            Coming soon
-          </span>
-        </div>
       </div>
     );
   };
@@ -984,6 +978,13 @@ export default function Home() {
                   className="block transition hover:text-violet-700"
                 >
                   PDF to Excel
+                </a>
+
+                <a
+                  href="/html-to-pdf"
+                  className="block transition hover:text-violet-700"
+                >
+                  HTML to PDF
                 </a>
 
                 <a

@@ -184,6 +184,15 @@ export const tools: ToolItem[] = [
     keywords: ["pdf", "excel", "xlsx", "table", "spreadsheet", "convert"],
   },
   {
+    title: "HTML to PDF",
+    description: "Convert HTML code and HTML files into PDF documents.",
+    href: "/html-to-pdf",
+    icon: "\uD83C\uDF10",
+    category: "pdf",
+    subcategory: "convert",
+    keywords: ["html", "html to pdf", "pdf", "html file", "code", "convert"],
+  },
+  {
     title: "Image Converter",
     description: "Convert JPG, PNG, WebP and many other image formats.",
     href: "/image-converter",
