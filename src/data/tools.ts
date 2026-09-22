@@ -170,7 +170,6 @@ export const tools: ToolItem[] = [
     icon: "\uD83D\uDCC4",
     category: "pdf",
     subcategory: "convert",
-    popular: true,
     comingSoon: true,
     keywords: ["word", "doc", "docx", "pdf", "document", "convert"],
   },
@@ -239,6 +238,25 @@ export const tools: ToolItem[] = [
     subcategory: "image",
     popular: true,
     keywords: ["background", "remove", "remover", "transparent", "ai", "image", "subject"],
+  },
+  {
+    title: "Image to Text",
+    description: "Extract text from JPG, PNG and WebP images with OCR.",
+    href: "/image-to-text",
+    icon: "\uD83D\uDD24",
+    category: "image",
+    subcategory: "image",
+    popular: true,
+    keywords: ["image to text", "ocr", "extract text", "jpg", "png", "webp", "text"],
+  },
+  {
+    title: "Image Translator",
+    description: "Extract and translate text from JPG, PNG and WebP images.",
+    href: "/image-translator",
+    icon: "\uD83C\uDF10",
+    category: "image",
+    subcategory: "image",
+    keywords: ["image translator", "translate image", "ocr translation", "jpg", "png", "webp", "translate text"],
   },
 ];
 

@@ -17,11 +17,13 @@ const relatedToolMap: Record<string, string[]> = {
   "/pdf-to-word": ["/pdf-to-excel", "/html-to-pdf", "/edit-pdf", "/pdf-to-jpg"],
   "/pdf-to-excel": ["/pdf-to-word", "/html-to-pdf", "/edit-pdf", "/pdf-to-jpg"],
   "/html-to-pdf": ["/pdf-to-word", "/pdf-to-excel", "/jpg-to-pdf", "/edit-pdf"],
-  "/image-converter": ["/compress-image", "/resize-image", "/crop-image", "/remove-background"],
-  "/compress-image": ["/resize-image", "/crop-image", "/image-converter", "/remove-background"],
-  "/resize-image": ["/crop-image", "/compress-image", "/image-converter", "/remove-background"],
-  "/crop-image": ["/resize-image", "/compress-image", "/remove-background", "/image-converter"],
-  "/remove-background": ["/crop-image", "/resize-image", "/compress-image", "/image-converter"],
+  "/image-converter": ["/compress-image", "/resize-image", "/crop-image", "/image-to-text"],
+  "/compress-image": ["/resize-image", "/crop-image", "/image-converter", "/image-to-text"],
+  "/resize-image": ["/crop-image", "/compress-image", "/image-converter", "/image-to-text"],
+  "/crop-image": ["/resize-image", "/compress-image", "/remove-background", "/image-to-text"],
+  "/remove-background": ["/crop-image", "/resize-image", "/image-to-text", "/image-translator"],
+  "/image-to-text": ["/image-translator", "/image-converter", "/crop-image", "/remove-background"],
+  "/image-translator": ["/image-to-text", "/image-converter", "/crop-image", "/remove-background"],
 };
 
 export default function RelatedTools({ currentHref }: { currentHref: string }) {
