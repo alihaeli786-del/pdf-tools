@@ -1,0 +1,8651 @@
+"use client";
+
+import Link from "next/link";
+import NextImage from "next/image";
+import { useEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
+import type { PDFDocumentProxy } from "pdfjs-dist";
+import {
+  Type,
+  Link as LinkIcon,
+  FileInput,
+  Image as ImageIcon,
+  PenLine,
+  Eraser,
+  Highlighter,
+  Shapes,
+  Undo2,
+  Redo2,
+  Upload,
+  ZoomIn,
+  ZoomOut,
+  RotateCw,
+  Trash2,
+  Plus,
+  Download,
+  ChevronLeft,
+  ChevronRight,
+  Bold,
+  Italic,
+  Move,
+  Copy,
+  ALargeSmall,
+  Palette,
+} from "lucide-react";
+
+type TextBox = {
+  id: string;
+  pageNumber: number;
+  viewScale: number;
+  viewRotation: number;
+  text: string;
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  angle: number;
+  fontSize: number;
+  fontFamily: string;
+  fontName: string;
+  sourceItemIndexes: number[];
+  backgroundColor: string;
+  isNew?: boolean;
+};
+// Keep the mobile editor and PDF export replacement masks on the exact
+// same original-text bounds. A larger rectangle can cover nearby PDF lines.
+function originalTextMaskBounds(box: TextBox) {
+  const padX = Math.min(0.75, Math.max(0.25, box.height * 0.09));
+  const padTop = Math.min(0.65, Math.max(0.2, box.height * 0.09));
+  // Some large PDF headings (e.g. 16pt bold) paint glyph bottoms below
+  // the PDF.js text baseline.  The previous mobile 0.65px bottom cap left
+  // a few original black pixels visible after replacing/deleting text.
+  // Change ONLY large original-font lines.  Normal paragraph line masks
+  // retain their V10 bounds to avoid touching neighbouring rows.
+  const originalFontPoints = box.height / Math.max(box.viewScale, 0.01);
+  const isLargeOriginalLine = !box.isNew && originalFontPoints >= 14;
+  // Smaller PDF body text can have a 1px descender/anti-aliasing fringe
+  // below the PDF.js baseline on mobile.  Increase only the lower edge,
+  // capped to protect the following line in tightly-spaced paragraphs.
+  // Keep the proven V11 heading padding completely unchanged.
+  const padBottom = isLargeOriginalLine
+    ? Math.min(2.8, Math.max(1.8, box.height * 0.26))
+    : !box.isNew
+      ? Math.min(2.15, Math.max(1.7, box.height * 0.30))
+      : Math.min(0.65, Math.max(0.2, box.height * 0.12));
+  return {
+    left: box.left - padX,
+    top: box.top - padTop,
+    width: Math.max(1, box.width + padX * 2),
+    height: Math.max(1, box.height + padTop + padBottom),
+  };
+}
+
+type ImageBox = {
+  id: string;
+  pageNumber: number;
+  viewScale: number;
+  viewRotation: number;
+  src: string;
+  mimeType: "image/png" | "image/jpeg";
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+};
+type WhiteoutBox = {
+  id: string;
+  pageNumber: number;
+  viewScale: number;
+  viewRotation: number;
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+};
+type AnnotateBox = WhiteoutBox;
+type TextEdit = {
+  text: string;
+  deleted: boolean;
+  bold: boolean;
+  italic: boolean;
+  fontSize: number;
+  fontFamily: string;
+  color: string;
+  link: string;
+  offsetX: number;
+  offsetY: number;
+};
+type LinkBox = WhiteoutBox & {
+  url: string;
+};
+
+type LinkTargetType = "url" | "email" | "phone" | "page";
+
+type PageSize = {
+  width: number;
+  height: number;
+};
+type FormFieldType =
+  | "text"
+  | "multiline"
+  | "checkbox"
+  | "radio"
+  | "dropdown";
+type ShapeType =
+  | "rectangle"
+  | "circle"
+  | "line"
+  | "arrow";
+
+type ShapeBox = WhiteoutBox & {
+  shapeType: ShapeType;
+  startX: number;
+  startY: number;
+  endX: number;
+  endY: number;
+  strokeColor: string;
+  fillColor: string;
+  strokeWidth: number;
+  opacity: number;
+};
+
+type FormFieldBox = WhiteoutBox & {
+  fieldType: FormFieldType;
+  name: string;
+  value: string;
+  checked?: boolean;
+  options?: string[];
+};
+
+const fontOptions = [
+  "Roboto",
+  "Open Sans",
+  "Arial",
+  "Helvetica",
+  "Times New Roman",
+  "Georgia",
+  "Courier New",
+  "Verdana",
+  "Tahoma",
+  "Trebuchet MS",
+  "Garamond",
+  "Palatino Linotype",
+  "Bookman",
+  "Century Gothic",
+  "Calibri",
+  "Cambria",
+];
+// A: Sample the predominant PDF colour inside each original text box.
+// This is an experiment: use it for background colour, not ink masking.
+function estimateBackground(data: Uint8ClampedArray): [number, number, number] {
+  const bins = new Map<number, { n: number; r: number; g: number; b: number }>();
+  for (let i = 0; i < data.length; i += 4) {
+    if (data[i + 3] < 128) continue;
+    const key = ((data[i] >> 4) << 8) | ((data[i + 1] >> 4) << 4) | (data[i + 2] >> 4);
+    const entry = bins.get(key) ?? { n: 0, r: 0, g: 0, b: 0 };
+    entry.n++;
+    entry.r += data[i];
+    entry.g += data[i + 1];
+    entry.b += data[i + 2];
+    bins.set(key, entry);
+  }
+  let best: { n: number; r: number; g: number; b: number } | null = null;
+  for (const entry of bins.values()) {
+    if (!best || entry.n > best.n) best = entry;
+  }
+  if (!best) return [255, 255, 255];
+  return [
+    Math.round(best.r / best.n),
+    Math.round(best.g / best.n),
+    Math.round(best.b / best.n),
+  ];
+}
+
+function PdfPagePreview({
+  pdfDoc,
+  pageNumber,
+  scale,
+  onActivate,
+  imageBoxes,
+  whiteoutBoxes,
+  shapeBoxes,
+  selectedImageId,
+  onSelectImage,
+  onMoveImage,
+  onResizeImage,
+  onDeleteImage,
+  placeholderSize,
+  textEdits,
+  addedTextBoxes,
+  onCommitText,
+  onOpenTextToolbar,
+  groupText,
+  sampleBackground,
+}: {
+  pdfDoc: PDFDocumentProxy;
+  pageNumber: number;
+  scale: number;
+  onActivate: () => void;
+  imageBoxes: ImageBox[];
+  whiteoutBoxes: WhiteoutBox[];
+  shapeBoxes: ShapeBox[];
+  selectedImageId: string | null;
+  onSelectImage: (id: string | null) => void;
+  onMoveImage: (id: string, left: number, top: number) => void;
+  onResizeImage: (id: string, width: number, height: number) => void;
+  onDeleteImage: (id: string) => void;
+  placeholderSize: PageSize;
+  textEdits: Record<string, TextEdit>;
+  addedTextBoxes: TextBox[];
+  onCommitText: (box: TextBox, text: string) => void;
+  onOpenTextToolbar: (box: TextBox) => void;
+  groupText: (boxes: TextBox[]) => TextBox[];
+  sampleBackground: (
+    context: CanvasRenderingContext2D,
+    left: number,
+    top: number,
+    width: number,
+    height: number,
+    outputScale?: number
+  ) => string;
+}) {
+  const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const groupTextRef = useRef(groupText);
+  const backgroundRef = useRef(sampleBackground);
+  useEffect(() => {
+    groupTextRef.current = groupText;
+    backgroundRef.current = sampleBackground;
+  }, [groupText, sampleBackground]);
+  const cancelEditRef = useRef(false);
+  // Drag geometry stays in page coordinates; changing the selected image never activates the preview.
+  const imageGestureRef = useRef<{
+    id: string;
+    mode: "move" | "resize";
+    startX: number;
+    startY: number;
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  } | null>(null);
+  const [pageText, setPageText] = useState<TextBox[]>([]);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+  const previewRootRef = useRef<HTMLDivElement>(null);
+  const [isNearViewport, setIsNearViewport] = useState(false);
+
+  useEffect(() => {
+    const element = previewRootRef.current;
+    if (!element) return;
+    if (typeof IntersectionObserver === "undefined") {
+      const frameId = requestAnimationFrame(() => setIsNearViewport(true));
+      return () => cancelAnimationFrame(frameId);
+    }
+    const root = element.closest("section");
+    const observer = new IntersectionObserver(
+      ([entry]) => setIsNearViewport(!!entry?.isIntersecting),
+      { root, rootMargin: "1200px 0px", threshold: 0 }
+    );
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [pdfDoc, pageNumber]);
+
+  useEffect(() => {
+    if (!isNearViewport) {
+      const canvas = previewCanvasRef.current;
+      if (canvas) {
+        canvas.width = 1;
+        canvas.height = 1;
+      }
+      const frameId = requestAnimationFrame(() => setPageText([]));
+      return () => cancelAnimationFrame(frameId);
+    }
+    let cancelled = false;
+    let renderTask: { promise: Promise<void>; cancel: () => void } | null = null;
+
+    const render = async () => {
+      try {
+        const page = await pdfDoc.getPage(pageNumber);
+        if (cancelled) return;
+        const viewport = page.getViewport({ scale });
+        const canvas = previewCanvasRef.current;
+        if (!canvas) return;
+        const context = canvas.getContext("2d");
+        if (!context) return;
+        const previewOutputScale =
+          typeof window !== "undefined" && window.innerWidth < 768
+            ? Math.min(Math.max(window.devicePixelRatio || 1, 2), 3)
+            : 1;
+
+        canvas.width = Math.max(1, Math.floor(viewport.width * previewOutputScale));
+        canvas.height = Math.max(1, Math.floor(viewport.height * previewOutputScale));
+
+        renderTask = page.render({
+          canvas,
+          canvasContext: context,
+          viewport,
+          transform: [previewOutputScale, 0, 0, previewOutputScale, 0, 0],
+        });
+        await renderTask.promise;
+        if (cancelled) return;
+
+        const isSafariLike =
+          typeof navigator !== "undefined" &&
+          /AppleWebKit/i.test(navigator.userAgent) &&
+          !/Chrome|Chromium|Edg/i.test(navigator.userAgent);
+
+        let content: Awaited<ReturnType<typeof page.getTextContent>>;
+
+        if (isSafariLike) {
+          const reader = page.streamTextContent().getReader();
+          const merged: Awaited<ReturnType<typeof page.getTextContent>> = {
+            items: [],
+            styles: {},
+            lang: null,
+          };
+
+          try {
+            while (true) {
+              const { value, done } = await reader.read();
+              if (done || cancelled) break;
+              if (!value) continue;
+
+              if (value.lang && !merged.lang) merged.lang = value.lang;
+              Object.assign(merged.styles, value.styles ?? {});
+
+              if (Array.isArray(value.items)) {
+                merged.items.push(...value.items);
+              }
+            }
+          } finally {
+            reader.releaseLock();
+          }
+
+          content = merged;
+        } else {
+          content = await page.getTextContent();
+        }
+
+        if (cancelled) return;
+        const pdfjs = await import("pdfjs-dist");
+        const boxes: TextBox[] = content.items.flatMap((item, index) => {
+          if (!("str" in item) || !item.str.trim()) return [];
+          const transformed = pdfjs.Util.transform(viewport.transform, item.transform);
+          const fontHeight = Math.max(Math.hypot(transformed[2], transformed[3]), 6);
+          const style = content.styles[item.fontName];
+          const commonObjs = page.commonObjs as unknown as {
+            has: (id: string) => boolean;
+            get: (id: string) => { name?: string; loadedName?: string };
+          };
+          const fontData = commonObjs.has(item.fontName)
+            ? commonObjs.get(item.fontName)
+            : undefined;
+          const rawFontName = fontData?.name || fontData?.loadedName || style?.fontFamily || "Arial";
+          const family = rawFontName
+            .replace(/^[A-Z]{6}\+/, "")
+            .replace(/-\d+$/, "")
+            .replace(/[-\s]?(Regular|BoldItalic|BoldOblique|Bold|Italic|Oblique)$/i, "")
+            .trim() || "Arial";
+          return [{
+            id: `${pageNumber}-${index}`,
+            pageNumber,
+            viewScale: scale,
+            viewRotation: 0,
+            text: item.str,
+            left: transformed[4],
+            top: transformed[5] - fontHeight,
+            width: Math.max(Math.abs(item.width * scale), 4),
+            height: fontHeight,
+            angle: Math.atan2(transformed[1], transformed[0]) * 180 / Math.PI,
+            fontSize: fontHeight,
+            fontFamily: family,
+            fontName: rawFontName,
+            sourceItemIndexes: [index],
+            backgroundColor: backgroundRef.current(
+              context,
+              transformed[4],
+              transformed[5] - fontHeight,
+              Math.max(Math.abs(item.width * scale), 4),
+              fontHeight,
+              previewOutputScale
+            ),
+          }];
+        });
+        if (!cancelled) setPageText(groupTextRef.current(boxes));
+      } catch (error) {
+        if (!cancelled && !(error instanceof Error && error.name === "RenderingCancelledException")) {
+          console.error("PDF preview rendering failed:", error);
+        }
+      }
+    };
+    const frameId = requestAnimationFrame(() => {
+      setPageText([]);
+      setEditingId(null);
+      void render();
+    });
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(frameId);
+      renderTask?.cancel();
+    };
+  }, [pdfDoc, pageNumber, scale, isNearViewport]);
+
+  const commit = (box: TextBox, text: string) => {
+    onCommitText(box, text);
+    setEditingId(null);
+  };
+
+  return (
+    <div
+      ref={previewRootRef}
+      className="relative block shrink-0 bg-white shadow-xl"
+      data-preview-page={pageNumber}
+      style={{ minWidth: placeholderSize.width, minHeight: placeholderSize.height }}
+    >
+      <button
+        type="button"
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={() => {
+          if (typeof window !== "undefined" && window.innerWidth < 768 && editingId === null) {
+            onSelectImage(null);
+            return;
+          }
+          onSelectImage(null);
+          if (editingId === null) return;
+
+          const activeBox = pageText.find(
+            (box) => box.id === editingId
+          );
+
+          if (activeBox) {
+            const previousText =
+              textEdits[activeBox.id]?.text ?? activeBox.text;
+
+            if (draft !== previousText) {
+              onCommitText(activeBox, draft);
+            }
+          }
+
+          setEditingId(null);
+        }}
+        onDoubleClick={() => { if (typeof window !== "undefined" && window.innerWidth < 768) return; onActivate(); }}
+        className="block border-0 bg-transparent p-0"
+        title={`Edit page ${pageNumber}`}
+      >
+        <canvas ref={previewCanvasRef} className="block bg-white" style={{ width: placeholderSize.width, height: placeholderSize.height }} />
+      </button>
+      {/* Render saved whiteouts on inactive pages. PDF canvas stays below;
+          newly added text, images and signatures remain above the whiteout. */}
+      {whiteoutBoxes
+        .filter((box) => box.pageNumber === pageNumber)
+        .map((box) => {
+          const whiteoutScale = scale / box.viewScale;
+          return (
+            <div
+              key={box.id}
+              className="pointer-events-none absolute z-10 bg-white"
+              style={{
+                left: box.left * whiteoutScale,
+                top: box.top * whiteoutScale,
+                width: box.width * whiteoutScale,
+                height: box.height * whiteoutScale,
+              }}
+            />
+          );
+        })}
+      {imageBoxes
+        .filter((imageBox) => imageBox.pageNumber === pageNumber)
+        .map((imageBox) => {
+          const imageScale = scale / imageBox.viewScale;
+          const selected = selectedImageId === imageBox.id;
+          const startGesture = (
+            event: React.PointerEvent<HTMLElement>,
+            mode: "move" | "resize"
+          ) => {
+            event.preventDefault();
+            event.stopPropagation();
+            onSelectImage(imageBox.id);
+            imageGestureRef.current = {
+              id: imageBox.id,
+              mode,
+              startX: event.clientX,
+              startY: event.clientY,
+              left: imageBox.left,
+              top: imageBox.top,
+              width: imageBox.width,
+              height: imageBox.height,
+            };
+            event.currentTarget.setPointerCapture(event.pointerId);
+          };
+          const moveGesture = (event: React.PointerEvent<HTMLElement>) => {
+            const gesture = imageGestureRef.current;
+            if (!gesture || gesture.id !== imageBox.id) return;
+            event.preventDefault();
+            event.stopPropagation();
+            const dx = (event.clientX - gesture.startX) / imageScale;
+            const dy = (event.clientY - gesture.startY) / imageScale;
+            if (gesture.mode === "move") {
+              onMoveImage(imageBox.id, gesture.left + dx, gesture.top + dy);
+            } else {
+              const newWidth = Math.max(40, gesture.width + dx);
+              onResizeImage(
+                imageBox.id,
+                newWidth,
+                newWidth * (gesture.height / Math.max(gesture.width, 1))
+              );
+            }
+          };
+          const endGesture = (event: React.PointerEvent<HTMLElement>) => {
+            if (imageGestureRef.current?.id !== imageBox.id) return;
+            imageGestureRef.current = null;
+            if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+              event.currentTarget.releasePointerCapture(event.pointerId);
+            }
+          };
+          return (
+            <div key={imageBox.id} className="contents">
+              <NextImage
+                unoptimized
+                loading="eager"
+                width={Math.max(1, Math.round(imageBox.width))}
+                height={Math.max(1, Math.round(imageBox.height))}
+                src={imageBox.src}
+                alt=""
+                draggable={false}
+                onPointerDown={(event) => startGesture(event, "move")}
+                onPointerMove={moveGesture}
+                onPointerUp={endGesture}
+                onPointerCancel={endGesture}
+                className={`absolute z-20 cursor-move select-none ${
+                  selected ? "outline outline-2 outline-dashed outline-blue-500" : ""
+                }`}
+                style={{
+                  left: imageBox.left * imageScale,
+                  top: imageBox.top * imageScale,
+                  width: imageBox.width * imageScale,
+                  height: imageBox.height * imageScale,
+                  touchAction: "none",
+                }}
+              />
+              {selected && (
+                <>
+                  <button
+                    type="button"
+                    aria-label="Resize selected image"
+                    onPointerDown={(event) => startGesture(event, "resize")}
+                    onPointerMove={moveGesture}
+                    onPointerUp={endGesture}
+                    onPointerCancel={endGesture}
+                    className="absolute z-50 h-4 w-4 cursor-nwse-resize rounded-sm border-2 border-white bg-blue-600 shadow"
+                    style={{
+                      left: (imageBox.left + imageBox.width) * imageScale - 8,
+                      top: (imageBox.top + imageBox.height) * imageScale - 8,
+                      touchAction: "none",
+                    }}
+                  />
+                  <button
+                    type="button"
+                    aria-label="Delete selected image"
+                    onMouseDown={(event) => event.stopPropagation()}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onDeleteImage(imageBox.id);
+                    }}
+                    className="absolute z-50 rounded border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-red-600 shadow"
+                    style={{
+                      left: Math.max(0, imageBox.left * imageScale),
+                      top: Math.max(0, imageBox.top * imageScale - 32),
+                    }}
+                  >
+                    Delete
+                  </button>
+                </>
+              )}
+            </div>
+          );
+        })}
+      <div className="pointer-events-none absolute inset-0 z-[25]">
+        {shapeBoxes
+          .filter((shape) => shape.pageNumber === pageNumber)
+          .map((shape) => {
+            const ratio = scale / shape.viewScale;
+
+            if (shape.shapeType === "line" || shape.shapeType === "arrow") {
+              const x1 = shape.startX * ratio;
+              const y1 = shape.startY * ratio;
+              const dx = (shape.endX - shape.startX) * ratio;
+              const dy = (shape.endY - shape.startY) * ratio;
+              const length = Math.hypot(dx, dy);
+              const angle = Math.atan2(dy, dx) * 180 / Math.PI;
+
+              return (
+                <div key={shape.id} className="absolute" style={{
+                  left: x1,
+                  top: y1,
+                  width: length,
+                  height: 2,
+                  transform: `rotate(${angle}deg)`,
+                  transformOrigin: "0 50%",
+                }}>
+                  <div style={{
+                    width: "100%",
+                    height: shape.strokeWidth,
+                    backgroundColor: shape.strokeColor,
+                    opacity: shape.opacity,
+                  }} />
+                  {shape.shapeType === "arrow" && (
+                    <div
+                      className="absolute right-[-2px] top-1/2 h-0 w-0 -translate-y-1/2"
+                      style={{
+                        borderTop: "6px solid transparent",
+                        borderBottom: "6px solid transparent",
+                        borderLeft: `10px solid ${shape.strokeColor}`,
+                        opacity: shape.opacity,
+                      }}
+                    />
+                  )}
+                </div>
+              );
+            }
+
+            return (
+              <div
+                key={shape.id}
+                className={`absolute ${
+                  shape.shapeType === "circle" ? "rounded-full" : ""
+                }`}
+                style={{
+                  left: shape.left * ratio,
+                  top: shape.top * ratio,
+                  width: shape.width * ratio,
+                  height: shape.height * ratio,
+                  border: `${shape.strokeWidth}px solid ${shape.strokeColor}`,
+                  backgroundColor: shape.fillColor,
+                  opacity: shape.opacity,
+                }}
+              />
+            );
+          })}
+      </div>
+      <div className="pointer-events-none absolute inset-0 z-30">
+        {[...pageText, ...addedTextBoxes].map((box) => {
+          const edit = textEdits[box.id];
+          const text = edit?.deleted ? "" : edit?.text ?? box.text;
+          const changed = !!edit && (edit.deleted || edit.text !== box.text);
+          const isEditing = editingId === box.id;
+          const style: React.CSSProperties = {
+            left: box.left + (edit?.offsetX ?? 0),
+            top: box.top + (edit?.offsetY ?? 0),
+            width: Math.max(box.width + 4, 12),
+            minHeight: Math.max(box.height + 4, 14),
+            fontSize: edit?.fontSize ?? box.fontSize,
+            fontFamily: edit?.fontFamily ?? box.fontFamily,
+            lineHeight: 1.15,
+            whiteSpace: "pre",
+            transform: `rotate(${box.angle}deg)`,
+            transformOrigin: "0 0",
+          };
+          if (isEditing) {
+            return (
+              <textarea
+                key={box.id}
+                ref={(element) => {
+                  if (element && element.dataset.focusHandled !== "1") {
+                    element.dataset.focusHandled = "1";
+                    element.focus({ preventScroll: true });
+                  }
+                }}
+                value={draft}
+                onChange={(event) => setDraft(event.target.value)}
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={(event) => event.stopPropagation()}
+                onBlur={() => {
+                  if (cancelEditRef.current) {
+                    cancelEditRef.current = false;
+                    return;
+                  }
+                  commit(box, draft);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    cancelEditRef.current = true;
+                    setEditingId(null);
+                  }
+                }}
+                className="pointer-events-auto absolute z-40 resize-none border border-blue-500 bg-white p-0 text-black outline-none"
+                style={{ ...style, minWidth: Math.max(box.width, 70) }}
+              />
+            );
+          }
+          return (
+            <div key={box.id} className="contents">
+              {changed && (
+                <div
+                  className="pointer-events-none absolute"
+                  style={{
+                    ...(typeof window !== "undefined" && window.innerWidth < 768
+                      ? originalTextMaskBounds(box)
+                      : {
+                          left: box.left - 1,
+                          top: box.top - 1,
+                          width: Math.max(box.width + 3, 10),
+                          height: Math.max(box.height + 2, 9),
+                        }),
+                    backgroundColor: box.backgroundColor,
+                    transform: `rotate(${box.angle}deg)`,
+                    transformOrigin: "0 0",
+                  }}
+                />
+              )}
+              {changed && !!text && (
+                <span
+                  className="pointer-events-none absolute whitespace-pre-wrap text-black"
+                  style={style}
+                >
+                  {text}
+                </span>
+              )}
+              <button
+                type="button"
+                aria-label={`Edit text on page ${pageNumber}: ${box.text.slice(0, 40)}`}
+                title="Click to edit text"
+                className="pointer-events-auto absolute cursor-text border border-transparent bg-transparent p-0 hover:border-blue-500"
+                style={style}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  cancelEditRef.current = false;
+                  // A mobile tap on any preview text must activate the main editor.
+                  // The preview's local textarea uses a different font and white background,
+                  // and it bypasses the main floating toolbar on pages 2+.
+                  if (box.isNew || (typeof window !== "undefined" && window.innerWidth < 768)) {
+                    onOpenTextToolbar(box);
+                    return;
+                  }
+                  setDraft(text);
+                  setEditingId(box.id);
+                }}
+              />
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+export default function EditPdfPage() {
+  const measureTextBox = (
+  text: string,
+  fontSize: number,
+  fontFamily: string,
+  bold: boolean,
+  italic: boolean
+) => {
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d");
+
+  const safeText = text || " ";
+
+  if (!context) {
+    return {
+  width: Math.max(
+    8,
+    safeText.length * fontSize * 0.58 + 3
+  ),
+  height: Math.max(
+    fontSize + 3,
+    fontSize * 1.08
+  ),
+};
+  }
+
+  context.font = `${italic ? "italic " : ""}${
+    bold ? "700 " : "400 "
+  }${fontSize}px ${fontFamily}`;
+
+  const lines = safeText.split("\n");
+
+  const widestLine = Math.max(
+    ...lines.map((line) =>
+      context.measureText(line || " ").width
+    )
+  );
+
+  return {
+  width: Math.max(
+    8,
+    Math.ceil(widestLine) + 3
+  ),
+
+  height: Math.max(
+    fontSize + 3,
+    Math.ceil(lines.length * fontSize * 1.08) + 2
+  ),
+};
+};
+  const [file, setFile] = useState<File | null>(null);
+  const [pdfDoc, setPdfDoc] = useState<PDFDocumentProxy | null>(null);
+const [pdfSourceBytes, setPdfSourceBytes] =
+  useState<Uint8Array | null>(null);
+  const [pageNumber, setPageNumber] = useState(1);
+  const [pageCount, setPageCount] = useState(0);
+
+  const [scale, setScale] = useState(2.3);
+  const [rotation, setRotation] = useState(0);
+
+  const [loading, setLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [rendering, setRendering] = useState(false);
+  const [error, setError] = useState("");
+
+  const [pageSize, setPageSize] = useState<PageSize>({
+    width: 0,
+    height: 0,
+  });
+  const [pageViewportSizes, setPageViewportSizes] =
+    useState<Record<number, PageSize>>({});
+
+  // Capture each page's actual dimensions before it enters the scrolling layout.
+  // The placeholders then never change height when the page canvas loads.
+  const loadPageViewportSizes = async (document: PDFDocumentProxy) => {
+    const sizes: Record<number, PageSize> = {};
+    const batchSize = 10;
+    for (let start = 1; start <= document.numPages; start += batchSize) {
+      const end = Math.min(document.numPages, start + batchSize - 1);
+      const pages = await Promise.all(
+        Array.from({ length: end - start + 1 }, (_, index) =>
+          document.getPage(start + index)
+        )
+      );
+      pages.forEach((page, index) => {
+        const viewport = page.getViewport({ scale: 1 });
+        sizes[start + index] = { width: viewport.width, height: viewport.height };
+      });
+    }
+    setPageViewportSizes(sizes);
+  };
+
+  const [emptyPageTemplate, setEmptyPageTemplate] = useState<{
+  width: number;
+  height: number;
+  rotation: number;
+} | null>(null);
+
+  const [textBoxes, setTextBoxes] = useState<TextBox[]>([]);
+  const [imageBoxes, setImageBoxes] = useState<ImageBox[]>([]);
+  const [whiteoutBoxes, setWhiteoutBoxes] = useState<WhiteoutBox[]>([]);
+  const [draftWhiteout, setDraftWhiteout] = useState<WhiteoutBox | null>(null);
+  const [annotateBoxes, setAnnotateBoxes] = useState<AnnotateBox[]>([]);
+const [draftAnnotate, setDraftAnnotate] = useState<AnnotateBox | null>(null);
+const [selectedAnnotateId, setSelectedAnnotateId] = useState<string | null>(null);
+const [linkBoxes, setLinkBoxes] = useState<LinkBox[]>([]);
+const [draftLinkBox, setDraftLinkBox] = useState<LinkBox | null>(null);
+const [selectedLinkBoxId, setSelectedLinkBoxId] =
+  useState<string | null>(null);
+  const [selectedWhiteoutId, setSelectedWhiteoutId] = useState<string | null>(null);
+  const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
+  const [selectedTextId, setSelectedTextId] = useState<string | null>(null);
+  const pendingPreviewTextIdRef = useRef<string | null>(null);
+
+  const [textEdits, setTextEdits] = useState<Record<string, TextEdit>>({});
+  const [editBoxes, setEditBoxes] = useState<Record<string, TextBox>>({});
+  const editBoxesRef = useRef(editBoxes);
+  useEffect(() => { editBoxesRef.current = editBoxes; }, [editBoxes]);
+  const [moveMode, setMoveMode] = useState(false);
+  const [isTextDragging, setIsTextDragging] = useState(false);
+  const [textSnapGuides, setTextSnapGuides] = useState<{
+  x?: number;
+  y?: number;
+}>({});
+  const [imageMoveMode, setImageMoveMode] = useState(false);
+  const [showSignDialog, setShowSignDialog] = useState(false);
+  const [signDialogMode, setSignDialogMode] =
+  useState<"type" | "draw" | "upload" | "camera">("type");
+  const [typedSignature, setTypedSignature] = useState("");
+  const [typedSignatureStyle, setTypedSignatureStyle] = useState(0);
+  const [addTextMode, setAddTextMode] = useState(false);
+  const [whiteoutMode, setWhiteoutMode] = useState(false);
+  const [annotateMode, setAnnotateMode] = useState(false);
+  const [linkAreaMode, setLinkAreaMode] = useState(false);
+  const [showFormsMenu, setShowFormsMenu] = useState(false);
+  const [showShapesMenu, setShowShapesMenu] = useState(false);
+
+const [shapeMode, setShapeMode] =
+  useState<ShapeType | null>(null);
+
+const [shapeBoxes, setShapeBoxes] =
+  useState<ShapeBox[]>([]);
+
+const [draftShapeBox, setDraftShapeBox] =
+  useState<ShapeBox | null>(null);
+
+const [selectedShapeId, setSelectedShapeId] =
+  useState<string | null>(null);
+  const [showShapeProperties, setShowShapeProperties] =
+  useState(false);
+
+const [formFieldMode, setFormFieldMode] =
+  useState<FormFieldType | null>(null);
+
+const [formFields, setFormFields] = useState<FormFieldBox[]>([]);
+const [draftFormField, setDraftFormField] =
+  useState<FormFieldBox | null>(null);
+
+  const [selectedFormFieldId, setSelectedFormFieldId] =
+  useState<string | null>(null);
+
+const [showFormProperties, setShowFormProperties] =
+  useState(false);
+const [showLinkProperties, setShowLinkProperties] = useState(false);
+const [linkTargetType, setLinkTargetType] =
+  useState<LinkTargetType>("url");
+const [linkTargetValue, setLinkTargetValue] = useState("");
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const pageEditorRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const signatureCanvasRef = useRef<HTMLCanvasElement>(null);
+  const signatureImageInputRef = useRef<HTMLInputElement>(null);
+  const signatureCameraVideoRef = useRef<HTMLVideoElement>(null);
+const signatureCameraStreamRef = useRef<MediaStream | null>(null);
+const signatureDrawingRef = useRef(false);
+const getVisiblePageForPlacement = (): number => {
+  const editor = pageEditorRef.current;
+  const scrollArea = editor?.closest("section");
+
+  if (!editor || !scrollArea) return pageNumber;
+
+  const scrollRect = scrollArea.getBoundingClientRect();
+  const viewport = {
+    left: Math.max(0, scrollRect.left),
+    right: Math.min(window.innerWidth, scrollRect.right),
+    top: Math.max(0, scrollRect.top),
+    bottom: Math.min(window.innerHeight, scrollRect.bottom),
+  };
+  const candidates: { element: HTMLElement; number: number }[] = [
+    { element: editor, number: pageNumber },
+  ];
+
+  scrollArea.querySelectorAll<HTMLButtonElement>(
+    'button[title^="Edit page "]'
+  ).forEach((button) => {
+    const number = Number(button.title.slice("Edit page ".length));
+    if (Number.isInteger(number) && number >= 1 && number <= pageCount) {
+      candidates.push({ element: button, number });
+    }
+  });
+
+  let bestPage = pageNumber;
+  let bestArea = 0;
+
+  for (const candidate of candidates) {
+    const rect = candidate.element.getBoundingClientRect();
+    const width = Math.max(0,
+      Math.min(rect.right, viewport.right) -
+      Math.max(rect.left, viewport.left)
+    );
+    const height = Math.max(0,
+      Math.min(rect.bottom, viewport.bottom) -
+      Math.max(rect.top, viewport.top)
+    );
+    const area = width * height;
+
+    if (area > bestArea) {
+      bestArea = area;
+      bestPage = candidate.number;
+    }
+  }
+
+  return bestPage;
+};
+// Switch the editable overlay without changing the current viewport anchor.
+const activatePageWithoutJump = (targetPage: number) => {
+  if (targetPage === pageNumber) return;
+  const scrollArea = pageEditorRef.current?.closest("section");
+  const previousPreview = scrollArea?.querySelector<HTMLButtonElement>(
+    `button[title="Edit page ${targetPage}"]`
+  );
+  const beforeTop = previousPreview?.getBoundingClientRect().top;
+  flushSync(() => {
+    const baseSize = pageViewportSizes[targetPage];
+    if (baseSize) {
+      setPageSize({ width: baseSize.width * scale, height: baseSize.height * scale });
+    }
+    setPageNumber(targetPage);
+    setRotation(0);
+    setSelectedImageId(null);
+  });
+  const restore = () => {
+    if (beforeTop === undefined) return;
+    const afterTop = pageEditorRef.current?.getBoundingClientRect().top;
+    if (afterTop === undefined) return;
+    const difference = afterTop - beforeTop;
+    if (Math.abs(difference) < 0.5) return;
+    if (scrollArea && scrollArea.scrollHeight > scrollArea.clientHeight + 1) {
+      scrollArea.scrollTop += difference;
+    } else {
+      window.scrollBy(0, difference);
+    }
+  };
+  restore();
+  requestAnimationFrame(restore);
+};
+const getVisibleImagePlacement = (
+  width: number,
+  height: number
+) => {
+  const pageElement = pageEditorRef.current;
+
+  if (!pageElement || typeof window === "undefined") {
+    return {
+      left: Math.max(20, (pageSize.width - width) / 2),
+      top: Math.max(20, (pageSize.height - height) / 2),
+    };
+  }
+
+  const rect = pageElement.getBoundingClientRect();
+
+  const visibleLeft = Math.max(rect.left, 0);
+  const visibleRight = Math.min(
+    rect.right,
+    window.innerWidth
+  );
+
+  const visibleTop = Math.max(rect.top, 70);
+  const visibleBottom = Math.min(
+    rect.bottom,
+    window.innerHeight
+  );
+
+  const centerX =
+    visibleRight > visibleLeft
+      ? (visibleLeft + visibleRight) / 2 - rect.left
+      : pageSize.width / 2;
+
+  const centerY =
+    visibleBottom > visibleTop
+      ? (visibleTop + visibleBottom) / 2 - rect.top
+      : pageSize.height / 2;
+
+  return {
+    left: Math.max(
+      20,
+      Math.min(
+        pageSize.width - width - 20,
+        centerX - width / 2
+      )
+    ),
+
+    top: Math.max(
+      20,
+      Math.min(
+        pageSize.height - height - 20,
+        centerY - height / 2
+      )
+    ),
+  };
+};
+  const duplicateCounterRef = useRef(0);
+  const newTextCounterRef = useRef(0);
+  const imageCounterRef = useRef(0);
+  const whiteoutCounterRef = useRef(0);
+  const annotateCounterRef = useRef(0);
+  const linkCounterRef = useRef(0);
+
+const linkDragRef = useRef<{
+  startX: number;
+  startY: number;
+} | null>(null);
+const linkMoveRef = useRef<{
+  id: string;
+  startX: number;
+  startY: number;
+  initialLeft: number;
+  initialTop: number;
+  moved: boolean;
+} | null>(null);
+  const whiteoutDragRef = useRef<{
+  startX: number;
+  startY: number;
+} | null>(null);
+const annotateDragRef = useRef<{
+  startX: number;
+  startY: number;
+} | null>(null);
+const whiteoutMoveRef = useRef<{
+  id: string;
+  startX: number;
+  startY: number;
+  initialLeft: number;
+  initialTop: number;
+} | null>(null);
+const whiteoutResizeRef = useRef<{
+  id: string;
+  startX: number;
+  startY: number;
+  initialWidth: number;
+  initialHeight: number;
+} | null>(null);
+const annotateMoveRef = useRef<{
+  id: string;
+  startX: number;
+  startY: number;
+  initialLeft: number;
+  initialTop: number;
+} | null>(null);
+  const dragRef = useRef<{
+    id: string;
+    startX: number;
+    startY: number;
+    initialX: number;
+    initialY: number;
+  } | null>(null);
+  const textClickRef = useRef<{
+  id: string;
+  time: number;
+} | null>(null);
+
+const pendingCaretRef = useRef<{
+  id: string;
+  clientX: number;
+} | null>(null);
+const imageDragRef = useRef<{
+  id: string;
+  startX: number;
+  startY: number;
+  initialLeft: number;
+  initialTop: number;
+} | null>(null);
+const imageResizeRef = useRef<{
+  id: string;
+  startX: number;
+  startY: number;
+  initialWidth: number;
+  initialHeight: number;
+} | null>(null);
+const formFieldCounterRef = useRef(0);
+const shapeCounterRef = useRef(0);
+
+const shapeDragRef = useRef<{
+  startX: number;
+  startY: number;
+} | null>(null);
+const shapeMoveRef = useRef<{
+  id: string;
+  startX: number;
+  startY: number;
+  initialLeft: number;
+  initialTop: number;
+  initialStartX: number;
+  initialStartY: number;
+  initialEndX: number;
+  initialEndY: number;
+} | null>(null);
+
+const formFieldDragRef = useRef<{
+  startX: number;
+  startY: number;
+} | null>(null);
+const formFieldMoveRef = useRef<{
+  id: string;
+  startX: number;
+  startY: number;
+  initialLeft: number;
+  initialTop: number;
+} | null>(null);
+  const tools = [
+    { label: "Text", icon: Type, enabled: true },
+    { label: "Links", icon: LinkIcon, enabled: true },
+    { label: "Forms", icon: FileInput, enabled: true },
+    { label: "Images", icon: ImageIcon, enabled: true },
+    { label: "Sign", icon: PenLine, enabled: true },
+    { label: "Whiteout", icon: Eraser, enabled: true },
+    { label: "Annotate", icon: Highlighter, enabled: true },
+    { label: "Shapes", icon: Shapes, enabled: true },
+  ];
+
+  const selectedBox =
+    textBoxes.find((box) => box.id === selectedTextId) || null;
+const selectedImageBox =
+  imageBoxes.find((imageBox) => imageBox.id === selectedImageId) || null;
+  const selectedWhiteoutBox =
+  whiteoutBoxes.find((box) => box.id === selectedWhiteoutId) || null;
+  const selectedAnnotateBox =
+  annotateBoxes.find((box) => box.id === selectedAnnotateId) || null;
+  const selectedLinkBox =
+  linkBoxes.find((box) => box.id === selectedLinkBoxId) || null;
+  const selectedFormField =
+  formFields.find(
+    (field) => field.id === selectedFormFieldId
+  ) ?? null;
+  const selectedShape =
+  shapeBoxes.find(
+    (shape) => shape.id === selectedShapeId
+  ) ?? null;
+  const deleteSelectedImage = () => {
+  if (!selectedImageId) return;
+
+  setImageBoxes((current) =>
+    current.filter((imageBox) => imageBox.id !== selectedImageId)
+  );
+
+  setSelectedImageId(null);
+};
+const deleteSelectedWhiteout = () => {
+  if (!selectedWhiteoutId) return;
+
+  setWhiteoutBoxes((current) =>
+    current.filter((box) => box.id !== selectedWhiteoutId)
+  );
+
+  setSelectedWhiteoutId(null);
+};
+const deleteSelectedAnnotate = () => {
+  if (!selectedAnnotateId) return;
+
+  setAnnotateBoxes((current) =>
+    current.filter((box) => box.id !== selectedAnnotateId)
+  );
+
+  setSelectedAnnotateId(null);
+};
+const saveLinkProperties = () => {
+  if (!selectedLinkBoxId || !linkTargetValue.trim()) return;
+
+  let finalUrl = linkTargetValue.trim();
+
+  if (linkTargetType === "url") {
+    if (
+      !finalUrl.startsWith("http://") &&
+      !finalUrl.startsWith("https://")
+    ) {
+      finalUrl = `https://${finalUrl}`;
+    }
+  }
+
+  if (linkTargetType === "email") {
+    finalUrl = `mailto:${finalUrl}`;
+  }
+
+  if (linkTargetType === "phone") {
+    finalUrl = `tel:${finalUrl}`;
+  }
+
+  if (linkTargetType === "page") {
+    finalUrl = `page:${finalUrl}`;
+  }
+
+  setLinkBoxes((current) =>
+    current.map((box) =>
+      box.id === selectedLinkBoxId
+        ? { ...box, url: finalUrl }
+        : box
+    )
+  );
+
+  setShowLinkProperties(false);
+  setSelectedLinkBoxId(null);
+};
+
+const deleteSelectedLinkBox = () => {
+  if (!selectedLinkBoxId) return;
+
+  setLinkBoxes((current) =>
+    current.filter((box) => box.id !== selectedLinkBoxId)
+  );
+
+  setSelectedLinkBoxId(null);
+  setShowLinkProperties(false);
+};
+const closeLinkProperties = () => {
+  if (selectedLinkBoxId) {
+    const selectedLink = linkBoxes.find(
+      (box) => box.id === selectedLinkBoxId
+    );
+
+    if (selectedLink && !selectedLink.url.trim()) {
+      setLinkBoxes((current) =>
+        current.filter((box) => box.id !== selectedLinkBoxId)
+      );
+
+      setSelectedLinkBoxId(null);
+    }
+  }
+
+  setShowLinkProperties(false);
+  setLinkAreaMode(false);
+};
+const handleImageResizeStart = (
+  event: React.PointerEvent<HTMLDivElement>
+) => {
+  if (!selectedImageBox) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+
+  event.currentTarget.setPointerCapture(event.pointerId);
+
+  imageResizeRef.current = {
+    id: selectedImageBox.id,
+    startX: event.clientX,
+    startY: event.clientY,
+    initialWidth: selectedImageBox.width,
+    initialHeight: selectedImageBox.height,
+  };
+};
+
+const handleImageResizeMove = (
+  event: React.PointerEvent<HTMLDivElement>
+) => {
+  if (!selectedImageBox) return;
+
+  const resize = imageResizeRef.current;
+
+  if (!resize || resize.id !== selectedImageBox.id) return;
+
+  const imageScale = scale / selectedImageBox.viewScale;
+
+  const deltaX =
+    (event.clientX - resize.startX) / imageScale;
+
+  const aspectRatio =
+    resize.initialHeight / resize.initialWidth;
+
+  const newWidth = Math.max(
+    40,
+    resize.initialWidth + deltaX
+  );
+
+  const newHeight = newWidth * aspectRatio;
+
+  setImageBoxes((current) =>
+    current.map((currentImage) =>
+      currentImage.id === selectedImageBox.id
+        ? {
+            ...currentImage,
+            width: newWidth,
+            height: newHeight,
+          }
+        : currentImage
+    )
+  );
+};
+
+const handleImageResizeEnd = (
+  event: React.PointerEvent<HTMLDivElement>
+) => {
+  if (
+    !selectedImageBox ||
+    imageResizeRef.current?.id !== selectedImageBox.id
+  ) {
+    return;
+  }
+
+  imageResizeRef.current = null;
+
+  if (
+    event.currentTarget.hasPointerCapture(event.pointerId)
+  ) {
+    event.currentTarget.releasePointerCapture(
+      event.pointerId
+    );
+  }
+};
+const startSignatureDrawing = (
+  event: React.PointerEvent<HTMLCanvasElement>
+) => {
+  const canvas = signatureCanvasRef.current;
+  if (!canvas) return;
+
+  const context = canvas.getContext("2d");
+  if (!context) return;
+
+  event.currentTarget.setPointerCapture(event.pointerId);
+
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+
+  const x = (event.clientX - rect.left) * scaleX;
+  const y = (event.clientY - rect.top) * scaleY;
+
+  context.beginPath();
+  context.moveTo(x, y);
+  context.lineWidth = 2;
+  context.lineCap = "round";
+  context.lineJoin = "round";
+  context.strokeStyle = "#111111";
+
+  signatureDrawingRef.current = true;
+};
+
+const drawSignature = (
+  event: React.PointerEvent<HTMLCanvasElement>
+) => {
+  if (!signatureDrawingRef.current) return;
+
+  const canvas = signatureCanvasRef.current;
+  if (!canvas) return;
+
+  const context = canvas.getContext("2d");
+  if (!context) return;
+
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+
+  const x = (event.clientX - rect.left) * scaleX;
+  const y = (event.clientY - rect.top) * scaleY;
+
+  context.lineTo(x, y);
+  context.stroke();
+};
+
+const stopSignatureDrawing = (
+  event: React.PointerEvent<HTMLCanvasElement>
+) => {
+  signatureDrawingRef.current = false;
+
+  if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+    event.currentTarget.releasePointerCapture(event.pointerId);
+  }
+};
+const useTypedSignature = () => {
+  if (!typedSignature.trim()) return;
+
+  const signatureStyles = [
+    {
+      fontFamily: "cursive",
+      fontStyle: "normal",
+      fontWeight: 400,
+    },
+    {
+      fontFamily: "Georgia, serif",
+      fontStyle: "italic",
+      fontWeight: 400,
+    },
+    {
+      fontFamily: "cursive",
+      fontStyle: "italic",
+      fontWeight: 700,
+    },
+    {
+      fontFamily: "'Times New Roman', serif",
+      fontStyle: "italic",
+      fontWeight: 400,
+    },
+    {
+  fontFamily: '"Brush Script MT", cursive',
+  fontStyle: "italic",
+  fontWeight: 400,
+},
+{
+  fontFamily: '"Segoe Script", "Lucida Handwriting", cursive',
+  fontStyle: "normal",
+  fontWeight: 600,
+  
+},
+{
+  fontFamily: '"Brush Script MT", "Segoe Script", cursive',
+  fontStyle: "italic",
+  fontWeight: 700,
+},
+{
+  fontFamily: '"Lucida Handwriting", "Segoe Script", cursive',
+  fontStyle: "normal",
+  fontWeight: 400,
+},
+  ];
+
+  const selectedStyle =
+    signatureStyles[typedSignatureStyle] ||
+    signatureStyles[0];
+
+  const canvas = document.createElement("canvas");
+
+const fontSize = 72;
+const paddingX = 50;
+const canvasHeight = 160;
+
+const measureContext = canvas.getContext("2d");
+if (!measureContext) return;
+
+measureContext.font = `${selectedStyle.fontStyle} ${selectedStyle.fontWeight} ${fontSize}px ${selectedStyle.fontFamily}`;
+
+const textWidth = measureContext.measureText(
+  typedSignature.trim()
+).width;
+
+canvas.width = Math.max(
+  500,
+  Math.ceil(textWidth + paddingX * 2)
+);
+canvas.height = canvasHeight;
+
+const context = canvas.getContext("2d");
+if (!context) return;
+
+context.clearRect(0, 0, canvas.width, canvas.height);
+
+context.fillStyle = "#111111";
+context.textAlign = "center";
+context.textBaseline = "middle";
+
+context.font = `${selectedStyle.fontStyle} ${selectedStyle.fontWeight} ${fontSize}px ${selectedStyle.fontFamily}`;
+
+context.fillText(
+  typedSignature.trim(),
+  canvas.width / 2,
+  canvas.height / 2
+);
+  const src = canvas.toDataURL("image/png");
+
+  imageCounterRef.current += 1;
+
+  const width = 220;
+  const height = 70;
+  const placement =
+  getVisibleImagePlacement(width, height);
+
+  const newSignature: ImageBox = {
+    id: `signature-${imageCounterRef.current}`,
+    pageNumber,
+    viewScale: scale,
+    viewRotation: rotation,
+    src,
+    mimeType: "image/png",
+    left: placement.left,
+    top: placement.top,
+    width,
+    height,
+  };
+
+  setImageBoxes((current) => [
+    ...current,
+    newSignature,
+  ]);
+
+  setSelectedImageId(newSignature.id);
+  setSelectedTextId(null);
+
+  setShowSignDialog(false);
+  setSignDialogMode("type");
+};
+const useDrawnSignature = () => {
+  const canvas = signatureCanvasRef.current;
+  if (!canvas) return;
+
+  const context = canvas.getContext("2d");
+  if (!context) return;
+
+  const imageData = context.getImageData(
+    0,
+    0,
+    canvas.width,
+    canvas.height
+  );
+
+  const hasSignature = Array.from(imageData.data).some(
+    (_, index) =>
+      index % 4 === 3 &&
+      imageData.data[index] > 0
+  );
+
+  if (!hasSignature) return;
+
+  const src = canvas.toDataURL("image/png");
+
+  imageCounterRef.current += 1;
+
+  const width = 220;
+  const height = width * (canvas.height / canvas.width);
+  const placement =
+  getVisibleImagePlacement(width, height);
+
+  const newSignature: ImageBox = {
+    id: `signature-${imageCounterRef.current}`,
+    pageNumber,
+    viewScale: scale,
+    viewRotation: rotation,
+    src,
+    mimeType: "image/png",
+    left: placement.left,
+    top: placement.top,
+    width,
+    height,
+  };
+
+  setImageBoxes((current) => [
+    ...current,
+    newSignature,
+  ]);
+
+  setSelectedImageId(newSignature.id);
+  setSelectedTextId(null);
+
+  context.clearRect(
+    0,
+    0,
+    canvas.width,
+    canvas.height
+  );
+
+  setShowSignDialog(false);
+  setSignDialogMode("type");
+};
+  const createDefaultEdit = (box: TextBox): TextEdit => ({
+    text: box.text,
+    deleted: false,
+    bold: /Bold/i.test(box.fontName),
+    italic: /(Italic|Oblique)/i.test(box.fontName),
+    fontSize: box.fontSize,
+    fontFamily: box.fontFamily || "Arial",
+    color: "#111111",
+    link: "",
+    offsetX: 0,
+    offsetY: 0,
+  });
+
+  // Preview page text edits use the same registry as the active editor/export.
+  const commitPreviewText = (box: TextBox, text: string) => {
+    setEditBoxes((current) => ({ ...current, [box.id]: box }));
+    setTextEdits((current) => ({
+      ...current,
+      [box.id]: {
+        ...(current[box.id] || createDefaultEdit(box)),
+        text,
+        deleted: false,
+      },
+    }));
+  };
+
+  const getTextEdit = (box: TextBox) => {
+    return textEdits[box.id] || createDefaultEdit(box);
+  };
+
+  const updateEdit = (box: TextBox, patch: Partial<TextEdit>) => {
+    setTextEdits((current) => ({
+      ...current,
+      [box.id]: {
+        ...(current[box.id] || createDefaultEdit(box)),
+        ...patch,
+      },
+    }));
+  };
+
+  const startEditing = (box: TextBox) => {
+    setSelectedTextId(box.id);
+    setMoveMode(false);
+    setEditBoxes((current) => ({
+  ...current,
+  [box.id]: box,
+}));
+
+    setTextEdits((current) => {
+      const existing = current[box.id];
+
+      if (existing) {
+        return {
+          ...current,
+          [box.id]: {
+            ...existing,
+            deleted: false,
+          },
+        };
+      }
+
+      return {
+        ...current,
+        [box.id]: createDefaultEdit(box),
+      };
+    });
+  };
+
+  const deleteSelectedText = () => {
+  if (!selectedBox) return;
+
+  if (selectedBox.isNew) {
+    setTextBoxes((current) =>
+      current.filter(
+        (box) => box.id !== selectedBox.id
+      )
+    );
+
+    setTextEdits((current) => {
+      const next = { ...current };
+      delete next[selectedBox.id];
+      return next;
+    });
+
+    setEditBoxes((current) => {
+      const next = { ...current };
+      delete next[selectedBox.id];
+      return next;
+    });
+
+    setSelectedTextId(null);
+    setMoveMode(false);
+    return;
+  }
+
+  updateEdit(selectedBox, {
+    text: "",
+    deleted: true,
+  });
+
+  setSelectedTextId(null);
+  setMoveMode(false);
+};
+const duplicateSelectedText = () => {
+  if (!selectedBox) return;
+
+  const sourceEdit = getTextEdit(selectedBox);
+
+  duplicateCounterRef.current += 1;
+
+const duplicateId = `duplicate-${pageNumber}-${duplicateCounterRef.current}`;
+
+  const duplicateBox: TextBox = {
+    ...selectedBox,
+    id: duplicateId,
+    left: selectedBox.left + 20,
+    top: selectedBox.top + 20,
+    isNew: true,
+  };
+
+  setTextBoxes((current) => [
+    ...current,
+    duplicateBox,
+  ]);
+   setEditBoxes((current) => ({
+  ...current,
+  [duplicateId]: duplicateBox,
+}));
+  setTextEdits((current) => ({
+    ...current,
+    [duplicateId]: {
+      ...sourceEdit,
+      deleted: false,
+      offsetX: 0,
+      offsetY: 0,
+    },
+  }));
+
+  setSelectedTextId(duplicateId);
+setMoveMode(true);
+};
+const addNewTextAt = (x: number, y: number) => {
+  newTextCounterRef.current += 1;
+
+  const newId = `new-text-${pageNumber}-${newTextCounterRef.current}`;
+
+  const newBox: TextBox = {
+    id: newId,
+pageNumber,
+viewScale: scale,
+viewRotation: rotation,
+text: "",
+    left: x,
+    top: y,
+    width: typeof window !== "undefined" && window.innerWidth < 768 ? 36 : 120,
+    height: typeof window !== "undefined" && window.innerWidth < 768 ? 14 : 16,
+    angle: 0,
+    fontSize: typeof window !== "undefined" && window.innerWidth < 768 ? 8 : 21,
+    fontFamily: "Arial",
+    fontName: "Arial",
+    sourceItemIndexes: [],
+    backgroundColor: "transparent",
+    isNew: true,
+  };
+
+  setTextBoxes((current) => [
+    ...current,
+    newBox,
+  ]);
+setEditBoxes((current) => ({
+  ...current,
+  [newId]: newBox,
+}));
+  setTextEdits((current) => ({
+    ...current,
+    [newId]: {
+      text: "",
+      deleted: false,
+      bold: false,
+      italic: false,
+      fontSize: typeof window !== "undefined" && window.innerWidth < 768 ? 8 : 21,
+      fontFamily: "Arial",
+      color: "#111111",
+      link: "",
+      offsetX: 0,
+      offsetY: 0,
+    },
+  }));
+
+  setSelectedTextId(typeof window !== "undefined" && window.innerWidth < 768 ? newId : null);
+  setMoveMode(false);
+  setAddTextMode(false);
+};
+const startWhiteout = (
+  event: React.PointerEvent<HTMLDivElement>
+) => {
+  if (!whiteoutMode) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+
+  const rect = event.currentTarget.getBoundingClientRect();
+
+  const x = event.clientX - rect.left;
+  const y = event.clientY - rect.top;
+
+  whiteoutCounterRef.current += 1;
+
+  const newWhiteout: WhiteoutBox = {
+    id: `whiteout-${pageNumber}-${whiteoutCounterRef.current}`,
+    pageNumber,
+    viewScale: scale,
+    viewRotation: rotation,
+    left: x,
+    top: y,
+    width: 0,
+    height: 0,
+  };
+
+  whiteoutDragRef.current = {
+    startX: x,
+    startY: y,
+  };
+
+  setDraftWhiteout(newWhiteout);
+
+  event.currentTarget.setPointerCapture(event.pointerId);
+};
+const moveWhiteout = (
+  event: React.PointerEvent<HTMLDivElement>
+) => {
+  if (!whiteoutMode) return;
+
+  const drag = whiteoutDragRef.current;
+  if (!drag) return;
+
+  const rect = event.currentTarget.getBoundingClientRect();
+
+  const currentX = event.clientX - rect.left;
+  const currentY = event.clientY - rect.top;
+
+  const left = Math.min(drag.startX, currentX);
+  const top = Math.min(drag.startY, currentY);
+
+  const width = Math.abs(currentX - drag.startX);
+  const height = Math.abs(currentY - drag.startY);
+
+  setDraftWhiteout((current) =>
+    current
+      ? {
+          ...current,
+          left,
+          top,
+          width,
+          height,
+        }
+      : null
+  );
+};
+const endWhiteout = (
+  event: React.PointerEvent<HTMLDivElement>
+) => {
+  if (!whiteoutMode) return;
+
+  const currentWhiteout = draftWhiteout;
+
+  whiteoutDragRef.current = null;
+
+  if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+    event.currentTarget.releasePointerCapture(event.pointerId);
+  }
+
+  if (
+    currentWhiteout &&
+    currentWhiteout.width > 2 &&
+    currentWhiteout.height > 2
+  ) {
+    setWhiteoutBoxes((current) => [
+      ...current,
+      currentWhiteout,
+    ]);
+    setSelectedWhiteoutId(currentWhiteout.id);
+    setWhiteoutMode(false);
+  }
+
+  setDraftWhiteout(null);
+};
+const startWhiteoutMove = (
+  event: React.PointerEvent<HTMLDivElement>,
+  box: WhiteoutBox
+) => {
+  event.preventDefault();
+  event.stopPropagation();
+
+  setSelectedWhiteoutId(box.id);
+  setSelectedTextId(null);
+  setSelectedImageId(null);
+
+  whiteoutMoveRef.current = {
+    id: box.id,
+    startX: event.clientX,
+    startY: event.clientY,
+    initialLeft: box.left,
+    initialTop: box.top,
+  };
+
+  event.currentTarget.setPointerCapture(event.pointerId);
+};
+const moveWhiteoutBox = (
+  event: React.PointerEvent<HTMLDivElement>
+) => {
+  const move = whiteoutMoveRef.current;
+  if (!move) return;
+
+  const box = whiteoutBoxes.find(
+    (currentBox) => currentBox.id === move.id
+  );
+
+  if (!box) return;
+
+  const whiteoutScale = scale / box.viewScale;
+
+  const deltaX =
+    (event.clientX - move.startX) / whiteoutScale;
+
+  const deltaY =
+    (event.clientY - move.startY) / whiteoutScale;
+
+  setWhiteoutBoxes((current) =>
+    current.map((currentBox) =>
+      currentBox.id === move.id
+        ? {
+            ...currentBox,
+            left: move.initialLeft + deltaX,
+            top: move.initialTop + deltaY,
+          }
+        : currentBox
+    )
+  );
+};
+const handleWhiteoutResizeStart = (
+  event: React.PointerEvent<HTMLDivElement>
+) => {
+  if (!selectedWhiteoutBox) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+
+  event.currentTarget.setPointerCapture(event.pointerId);
+
+  whiteoutResizeRef.current = {
+    id: selectedWhiteoutBox.id,
+    startX: event.clientX,
+    startY: event.clientY,
+    initialWidth: selectedWhiteoutBox.width,
+    initialHeight: selectedWhiteoutBox.height,
+  };
+};
+
+const handleWhiteoutResizeMove = (
+  event: React.PointerEvent<HTMLDivElement>
+) => {
+  if (!selectedWhiteoutBox) return;
+
+  const resize = whiteoutResizeRef.current;
+
+  if (
+    !resize ||
+    resize.id !== selectedWhiteoutBox.id
+  ) {
+    return;
+  }
+
+  const whiteoutScale =
+    scale / selectedWhiteoutBox.viewScale;
+
+  const deltaX =
+    (event.clientX - resize.startX) /
+    whiteoutScale;
+
+  const deltaY =
+    (event.clientY - resize.startY) /
+    whiteoutScale;
+
+  const newWidth = Math.max(
+    10,
+    resize.initialWidth + deltaX
+  );
+
+  const newHeight = Math.max(
+    10,
+    resize.initialHeight + deltaY
+  );
+
+  setWhiteoutBoxes((current) =>
+    current.map((box) =>
+      box.id === selectedWhiteoutBox.id
+        ? {
+            ...box,
+            width: newWidth,
+            height: newHeight,
+          }
+        : box
+    )
+  );
+};
+
+const handleWhiteoutResizeEnd = (
+  event: React.PointerEvent<HTMLDivElement>
+) => {
+  if (
+    !selectedWhiteoutBox ||
+    whiteoutResizeRef.current?.id !==
+      selectedWhiteoutBox.id
+  ) {
+    return;
+  }
+
+  whiteoutResizeRef.current = null;
+
+  if (
+    event.currentTarget.hasPointerCapture(
+      event.pointerId
+    )
+  ) {
+    event.currentTarget.releasePointerCapture(
+      event.pointerId
+    );
+  }
+};
+const endWhiteoutMove = (
+  event: React.PointerEvent<HTMLDivElement>
+) => {
+  const move = whiteoutMoveRef.current;
+  if (!move) return;
+
+  whiteoutMoveRef.current = null;
+
+  if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+    event.currentTarget.releasePointerCapture(event.pointerId);
+  }
+};
+const startAnnotate = (
+  event: React.PointerEvent<HTMLDivElement>
+) => {
+  if (!annotateMode) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+
+  const rect = event.currentTarget.getBoundingClientRect();
+
+  const x = event.clientX - rect.left;
+  const y = event.clientY - rect.top;
+
+  annotateCounterRef.current += 1;
+
+  const newAnnotate: AnnotateBox = {
+    id: `annotate-${pageNumber}-${annotateCounterRef.current}`,
+    pageNumber,
+    viewScale: scale,
+    viewRotation: rotation,
+    left: x,
+    top: y,
+    width: 0,
+    height: 0,
+  };
+
+  annotateDragRef.current = {
+    startX: x,
+    startY: y,
+  };
+
+  setDraftAnnotate(newAnnotate);
+
+  event.currentTarget.setPointerCapture(event.pointerId);
+};
+
+const moveAnnotate = (
+  event: React.PointerEvent<HTMLDivElement>
+) => {
+  if (!annotateMode) return;
+
+  const drag = annotateDragRef.current;
+  if (!drag) return;
+
+  const rect = event.currentTarget.getBoundingClientRect();
+
+  const currentX = event.clientX - rect.left;
+  const currentY = event.clientY - rect.top;
+
+  const left = Math.min(drag.startX, currentX);
+  const top = Math.min(drag.startY, currentY);
+  const width = Math.abs(currentX - drag.startX);
+  const height = Math.abs(currentY - drag.startY);
+
+  setDraftAnnotate((current) =>
+    current
+      ? {
+          ...current,
+          left,
+          top,
+          width,
+          height,
+        }
+      : null
+  );
+};
+
+const endAnnotate = (
+  event: React.PointerEvent<HTMLDivElement>
+) => {
+  if (!annotateMode) return;
+
+  const currentAnnotate = draftAnnotate;
+
+  annotateDragRef.current = null;
+
+  if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+    event.currentTarget.releasePointerCapture(event.pointerId);
+  }
+
+  if (
+  currentAnnotate &&
+  currentAnnotate.width > 2 &&
+  currentAnnotate.height > 2
+) {
+  setAnnotateBoxes((current) => [
+    ...current,
+    currentAnnotate,
+  ]);
+
+  setSelectedAnnotateId(currentAnnotate.id);
+  setAnnotateMode(false);
+}
+  setDraftAnnotate(null);
+};
+const startLinkArea = (
+  event: React.PointerEvent<HTMLDivElement>
+) => {
+  if (!linkAreaMode) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+
+  const rect = event.currentTarget.getBoundingClientRect();
+  const x = event.clientX - rect.left;
+  const y = event.clientY - rect.top;
+
+  linkCounterRef.current += 1;
+
+  const newLink: LinkBox = {
+    id: `link-${pageNumber}-${linkCounterRef.current}`,
+    pageNumber,
+    viewScale: scale,
+    viewRotation: rotation,
+    left: x,
+    top: y,
+    width: 0,
+    height: 0,
+    url: "",
+  };
+
+  linkDragRef.current = {
+    startX: x,
+    startY: y,
+  };
+
+  setDraftLinkBox(newLink);
+  event.currentTarget.setPointerCapture(event.pointerId);
+};
+
+const moveLinkArea = (
+  event: React.PointerEvent<HTMLDivElement>
+) => {
+  if (!linkAreaMode) return;
+
+  const drag = linkDragRef.current;
+  if (!drag) return;
+
+  const rect = event.currentTarget.getBoundingClientRect();
+  const currentX = event.clientX - rect.left;
+  const currentY = event.clientY - rect.top;
+
+  setDraftLinkBox((current) =>
+    current
+      ? {
+          ...current,
+          left: Math.min(drag.startX, currentX),
+          top: Math.min(drag.startY, currentY),
+          width: Math.abs(currentX - drag.startX),
+          height: Math.abs(currentY - drag.startY),
+        }
+      : null
+  );
+};
+
+const endLinkArea = (
+  event: React.PointerEvent<HTMLDivElement>
+) => {
+  if (!linkAreaMode) return;
+
+  const currentLink = draftLinkBox;
+  linkDragRef.current = null;
+
+  if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+    event.currentTarget.releasePointerCapture(event.pointerId);
+  }
+
+  if (
+    currentLink &&
+    currentLink.width > 5 &&
+    currentLink.height > 5
+  ) {
+    setLinkBoxes((current) => [...current, currentLink]);
+    setSelectedLinkBoxId(currentLink.id);
+    setLinkTargetType("url");
+    setLinkTargetValue("");
+    setShowLinkProperties(true);
+    setLinkAreaMode(false);
+  }
+
+  setDraftLinkBox(null);
+};
+const startLinkMove = (
+  event: React.PointerEvent<HTMLDivElement>,
+  box: LinkBox
+) => {
+  if (linkAreaMode) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+
+  setSelectedLinkBoxId(box.id);
+
+  linkMoveRef.current = {
+    id: box.id,
+    startX: event.clientX,
+    startY: event.clientY,
+    initialLeft: box.left,
+    initialTop: box.top,
+    moved: false,
+  };
+
+  event.currentTarget.setPointerCapture(event.pointerId);
+};
+
+const moveLinkBox = (
+  event: React.PointerEvent<HTMLDivElement>
+) => {
+  const move = linkMoveRef.current;
+  if (!move) return;
+
+  const box = linkBoxes.find((item) => item.id === move.id);
+  if (!box) return;
+
+  const linkScale = scale / box.viewScale;
+
+  const deltaX = (event.clientX - move.startX) / linkScale;
+  const deltaY = (event.clientY - move.startY) / linkScale;
+
+  if (Math.abs(deltaX) > 2 || Math.abs(deltaY) > 2) {
+    move.moved = true;
+  }
+
+  setLinkBoxes((current) =>
+    current.map((item) =>
+      item.id === move.id
+        ? {
+            ...item,
+            left: move.initialLeft + deltaX,
+            top: move.initialTop + deltaY,
+          }
+        : item
+    )
+  );
+};
+
+const endLinkMove = (
+  event: React.PointerEvent<HTMLDivElement>,
+  box: LinkBox
+) => {
+  const move = linkMoveRef.current;
+  if (!move) return;
+
+  linkMoveRef.current = null;
+
+  if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+    event.currentTarget.releasePointerCapture(event.pointerId);
+  }
+
+  if (!move.moved) {
+    if (box.url.startsWith("mailto:")) {
+      setLinkTargetType("email");
+      setLinkTargetValue(box.url.replace(/^mailto:/, ""));
+    } else if (box.url.startsWith("tel:")) {
+      setLinkTargetType("phone");
+      setLinkTargetValue(box.url.replace(/^tel:/, ""));
+    } else if (box.url.startsWith("page:")) {
+      setLinkTargetType("page");
+      setLinkTargetValue(box.url.replace(/^page:/, ""));
+    } else {
+      setLinkTargetType("url");
+      setLinkTargetValue(box.url);
+    }
+
+    setShowLinkProperties(true);
+  }
+};
+const startFormField = (
+  event: React.PointerEvent<HTMLDivElement>
+) => {
+  if (!formFieldMode) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+
+  const rect = event.currentTarget.getBoundingClientRect();
+
+  const x = event.clientX - rect.left;
+  const y = event.clientY - rect.top;
+
+  formFieldCounterRef.current += 1;
+
+  const newField: FormFieldBox = {
+    id: `form-${pageNumber}-${formFieldCounterRef.current}`,
+    pageNumber,
+    viewScale: scale,
+    viewRotation: rotation,
+    left: x,
+    top: y,
+    width: 0,
+    height: 0,
+    fieldType: formFieldMode,
+    name: `Field_${formFieldCounterRef.current}`,
+    value: "",
+    checked: false,
+    options:
+      formFieldMode === "dropdown"
+        ? ["Option 1", "Option 2"]
+        : undefined,
+  };
+
+  formFieldDragRef.current = {
+    startX: x,
+    startY: y,
+  };
+
+  setDraftFormField(newField);
+
+  event.currentTarget.setPointerCapture(event.pointerId);
+};
+
+const moveFormField = (
+  event: React.PointerEvent<HTMLDivElement>
+) => {
+  if (!formFieldMode) return;
+
+  const drag = formFieldDragRef.current;
+  if (!drag) return;
+
+  const rect = event.currentTarget.getBoundingClientRect();
+
+  const currentX = event.clientX - rect.left;
+  const currentY = event.clientY - rect.top;
+
+  setDraftFormField((current) =>
+    current
+      ? {
+          ...current,
+          left: Math.min(drag.startX, currentX),
+          top: Math.min(drag.startY, currentY),
+          width: Math.abs(currentX - drag.startX),
+          height: Math.abs(currentY - drag.startY),
+        }
+      : null
+  );
+};
+
+const endFormField = (
+  event: React.PointerEvent<HTMLDivElement>
+) => {
+  if (!formFieldMode) return;
+
+  const currentField = draftFormField;
+
+  formFieldDragRef.current = null;
+
+  if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+    event.currentTarget.releasePointerCapture(event.pointerId);
+  }
+
+  if (
+  currentField &&
+  currentField.width > 5 &&
+  currentField.height > 5
+) {
+  let finalField = currentField;
+
+  if (
+    currentField.fieldType === "checkbox" ||
+    currentField.fieldType === "radio"
+  ) {
+    finalField = {
+      ...currentField,
+      width: 22,
+      height: 22,
+    };
+  }
+
+  if (currentField.fieldType === "text") {
+    finalField = {
+      ...currentField,
+      width: Math.max(currentField.width, 140),
+      height: 28,
+    };
+  }
+
+  if (currentField.fieldType === "multiline") {
+    finalField = {
+      ...currentField,
+      width: Math.max(currentField.width, 160),
+      height: Math.max(currentField.height, 70),
+    };
+  }
+
+  if (currentField.fieldType === "dropdown") {
+    finalField = {
+      ...currentField,
+      width: Math.max(currentField.width, 140),
+      height: 30,
+    };
+  }
+
+  setFormFields((current) => [
+    ...current,
+    finalField,
+  ]);
+
+  setSelectedFormFieldId(finalField.id);
+}
+
+  setDraftFormField(null);
+  setFormFieldMode(null);
+};
+const startShape = (
+  event: React.PointerEvent<HTMLDivElement>
+) => {
+  if (!shapeMode) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+
+  const rect = event.currentTarget.getBoundingClientRect();
+
+  const x = event.clientX - rect.left;
+  const y = event.clientY - rect.top;
+
+  shapeCounterRef.current += 1;
+
+  const newShape: ShapeBox = {
+    id: `shape-${pageNumber}-${shapeCounterRef.current}`,
+    pageNumber,
+    viewScale: scale,
+    viewRotation: rotation,
+    left: x,
+    top: y,
+    width: 0,
+    height: 0,
+    shapeType: shapeMode,
+    strokeColor: "#1d4ed8",
+fillColor: "#ffffff",
+strokeWidth: 2,
+opacity: 1,
+    startX: x,
+    startY: y,
+    endX: x,
+    endY: y,
+  };
+
+  shapeDragRef.current = {
+    startX: x,
+    startY: y,
+  };
+
+  setDraftShapeBox(newShape);
+
+  event.currentTarget.setPointerCapture(event.pointerId);
+};
+
+const moveShape = (
+  event: React.PointerEvent<HTMLDivElement>
+) => {
+  if (!shapeMode) return;
+
+  const drag = shapeDragRef.current;
+  if (!drag) return;
+
+  const rect = event.currentTarget.getBoundingClientRect();
+
+  const currentX = event.clientX - rect.left;
+  const currentY = event.clientY - rect.top;
+
+  setDraftShapeBox((current) =>
+    current
+      ? {
+          ...current,
+          left: Math.min(drag.startX, currentX),
+          top: Math.min(drag.startY, currentY),
+          width: Math.abs(currentX - drag.startX),
+          height: Math.abs(currentY - drag.startY),
+          endX: currentX,
+          endY: currentY,
+        }
+      : null
+  );
+};
+
+const endShape = (
+  event: React.PointerEvent<HTMLDivElement>
+) => {
+  if (!shapeMode) return;
+
+  const drag = shapeDragRef.current;
+
+  if (!drag || !draftShapeBox) {
+    setDraftShapeBox(null);
+    setShapeMode(null);
+    return;
+  }
+
+  const rect = event.currentTarget.getBoundingClientRect();
+
+  const endX = event.clientX - rect.left;
+  const endY = event.clientY - rect.top;
+
+  const width = Math.abs(endX - drag.startX);
+  const height = Math.abs(endY - drag.startY);
+
+  const finalShape: ShapeBox = {
+    ...draftShapeBox,
+    left: Math.min(drag.startX, endX),
+    top: Math.min(drag.startY, endY),
+    width,
+    height,
+    startX: drag.startX,
+    startY: drag.startY,
+    endX,
+    endY,
+  };
+
+  const lineLength = Math.hypot(
+    endX - drag.startX,
+    endY - drag.startY
+  );
+
+  const isValid =
+    shapeMode === "line" || shapeMode === "arrow"
+      ? lineLength > 5
+      : width > 5 && height > 5;
+
+  if (isValid) {
+    setShapeBoxes((current) => [
+      ...current,
+      finalShape,
+    ]);
+
+    setSelectedShapeId(finalShape.id);
+  }
+
+  shapeDragRef.current = null;
+
+  if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+    event.currentTarget.releasePointerCapture(event.pointerId);
+  }
+
+  setDraftShapeBox(null);
+  setShapeMode(null);
+};
+const startShapeMove = (
+  event: React.PointerEvent<HTMLDivElement>,
+  shape: ShapeBox
+) => {
+  if (shapeMode) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+
+  setSelectedShapeId(shape.id);
+
+  shapeMoveRef.current = {
+    id: shape.id,
+    startX: event.clientX,
+    startY: event.clientY,
+    initialLeft: shape.left,
+    initialTop: shape.top,
+    initialStartX: shape.startX,
+    initialStartY: shape.startY,
+    initialEndX: shape.endX,
+    initialEndY: shape.endY,
+  };
+
+  event.currentTarget.setPointerCapture(event.pointerId);
+};
+
+const moveShapeBox = (
+  event: React.PointerEvent<HTMLDivElement>,
+  shape: ShapeBox
+) => {
+  const move = shapeMoveRef.current;
+
+  if (!move || move.id !== shape.id) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+
+  const shapeScale = scale / shape.viewScale;
+
+  const deltaX =
+    (event.clientX - move.startX) / shapeScale;
+
+  const deltaY =
+    (event.clientY - move.startY) / shapeScale;
+
+  setShapeBoxes((current) =>
+    current.map((item) =>
+      item.id === shape.id
+        ? {
+            ...item,
+            left: move.initialLeft + deltaX,
+            top: move.initialTop + deltaY,
+            startX: move.initialStartX + deltaX,
+            startY: move.initialStartY + deltaY,
+            endX: move.initialEndX + deltaX,
+            endY: move.initialEndY + deltaY,
+          }
+        : item
+    )
+  );
+};
+
+const endShapeMove = (
+  event: React.PointerEvent<HTMLDivElement>
+) => {
+  event.preventDefault();
+  event.stopPropagation();
+
+  shapeMoveRef.current = null;
+
+  if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+    event.currentTarget.releasePointerCapture(event.pointerId);
+  }
+};
+const startFormFieldMove = (
+  event: React.PointerEvent<HTMLDivElement>,
+  field: FormFieldBox
+) => {
+  if (formFieldMode) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+
+  setSelectedFormFieldId(field.id);
+
+  formFieldMoveRef.current = {
+    id: field.id,
+    startX: event.clientX,
+    startY: event.clientY,
+    initialLeft: field.left,
+    initialTop: field.top,
+  };
+
+  event.currentTarget.setPointerCapture(event.pointerId);
+};
+
+const moveFormFieldBox = (
+  event: React.PointerEvent<HTMLDivElement>,
+  field: FormFieldBox
+) => {
+  const move = formFieldMoveRef.current;
+
+  if (!move || move.id !== field.id) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+
+  const fieldScale = scale / field.viewScale;
+
+  const deltaX = (event.clientX - move.startX) / fieldScale;
+  const deltaY = (event.clientY - move.startY) / fieldScale;
+
+  setFormFields((current) =>
+    current.map((item) =>
+      item.id === field.id
+        ? {
+            ...item,
+            left: move.initialLeft + deltaX,
+            top: move.initialTop + deltaY,
+          }
+        : item
+    )
+  );
+};
+
+const endFormFieldMove = (
+  event: React.PointerEvent<HTMLDivElement>
+) => {
+  event.preventDefault();
+  event.stopPropagation();
+
+  formFieldMoveRef.current = null;
+
+  if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+    event.currentTarget.releasePointerCapture(event.pointerId);
+  }
+};
+
+const deleteSelectedFormField = () => {
+  if (!selectedFormFieldId) return;
+
+  setFormFields((current) =>
+    current.filter(
+      (field) => field.id !== selectedFormFieldId
+    )
+  );
+
+  setSelectedFormFieldId(null);
+};
+const deleteSelectedShape = () => {
+  if (!selectedShapeId) return;
+
+  setShapeBoxes((current) =>
+    current.filter(
+      (shape) => shape.id !== selectedShapeId
+    )
+  );
+
+  setSelectedShapeId(null);
+};
+const updateSelectedShape = (
+  updates: Partial<ShapeBox>
+) => {
+  if (!selectedShapeId) return;
+
+  setShapeBoxes((current) =>
+    current.map((shape) =>
+      shape.id === selectedShapeId
+        ? { ...shape, ...updates }
+        : shape
+    )
+  );
+};
+
+const closeShapeProperties = () => {
+  setShowShapeProperties(false);
+};
+const updateSelectedFormField = (
+  updates: Partial<FormFieldBox>
+) => {
+  if (!selectedFormFieldId) return;
+
+  setFormFields((current) =>
+    current.map((field) =>
+      field.id === selectedFormFieldId
+        ? { ...field, ...updates }
+        : field
+    )
+  );
+};
+
+const closeFormProperties = () => {
+  setShowFormProperties(false);
+};
+const startAnnotateMove = (
+  event: React.PointerEvent<HTMLDivElement>,
+  box: AnnotateBox
+) => {
+  event.preventDefault();
+  event.stopPropagation();
+
+  setSelectedAnnotateId(box.id);
+  setSelectedWhiteoutId(null);
+  setSelectedImageId(null);
+  setSelectedTextId(null);
+
+  annotateMoveRef.current = {
+    id: box.id,
+    startX: event.clientX,
+    startY: event.clientY,
+    initialLeft: box.left,
+    initialTop: box.top,
+  };
+
+  event.currentTarget.setPointerCapture(event.pointerId);
+};
+
+const moveAnnotateBox = (
+  event: React.PointerEvent<HTMLDivElement>
+) => {
+  const move = annotateMoveRef.current;
+  if (!move) return;
+
+  const box = annotateBoxes.find(
+    (currentBox) => currentBox.id === move.id
+  );
+
+  if (!box) return;
+
+  const annotateScale = scale / box.viewScale;
+
+  const deltaX =
+    (event.clientX - move.startX) / annotateScale;
+
+  const deltaY =
+    (event.clientY - move.startY) / annotateScale;
+
+  setAnnotateBoxes((current) =>
+    current.map((currentBox) =>
+      currentBox.id === move.id
+        ? {
+            ...currentBox,
+            left: move.initialLeft + deltaX,
+            top: move.initialTop + deltaY,
+          }
+        : currentBox
+    )
+  );
+};
+
+const endAnnotateMove = (
+  event: React.PointerEvent<HTMLDivElement>
+) => {
+  if (!annotateMoveRef.current) return;
+
+  annotateMoveRef.current = null;
+
+  if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+    event.currentTarget.releasePointerCapture(event.pointerId);
+  }
+};
+  const createLink = () => {
+    if (!selectedBox) return;
+
+    const current = getTextEdit(selectedBox);
+
+    const url = window.prompt(
+      "Enter link URL:",
+      current.link || "https://"
+    );
+
+    if (url === null) return;
+
+    updateEdit(selectedBox, {
+      link: url.trim(),
+    });
+  };
+const groupTextIntoLines = (boxes: TextBox[]): TextBox[] => {
+  if (!boxes.length) return [];
+
+  const sorted = [...boxes].sort((a, b) => {
+    const verticalDifference = a.top - b.top;
+
+    if (Math.abs(verticalDifference) > 3) {
+      return verticalDifference;
+    }
+
+    return a.left - b.left;
+  });
+
+  const grouped: TextBox[] = [];
+
+  for (const box of sorted) {
+    const previous = grouped[grouped.length - 1];
+
+    if (!previous) {
+      grouped.push({ ...box });
+      continue;
+    }
+
+    const sameLine =
+      Math.abs(previous.top - box.top) <=
+      Math.max(previous.height, box.height) * 0.35;
+
+    const previousRight =
+      previous.left + previous.width;
+
+    const gap =
+      box.left - previousRight;
+
+    const mobileGapLimit =
+      typeof window !== "undefined" &&
+      window.innerWidth < 768;
+
+    const maxMergeGap = mobileGapLimit
+      ? Math.max(
+          previous.fontSize * 0.5,
+          box.fontSize * 0.5,
+          3
+        )
+      : Math.max(
+          previous.fontSize * 1.5,
+          box.fontSize * 1.5,
+          14
+        );
+
+    const closeEnough =
+      gap >= -2 && gap <= maxMergeGap;
+
+    const similarSize =
+      Math.abs(
+        previous.fontSize - box.fontSize
+      ) <=
+      Math.max(previous.fontSize, box.fontSize) * 0.2;
+
+    const sameFont =
+  previous.fontFamily === box.fontFamily;
+
+const sameStyle =
+  /Bold/i.test(previous.fontName) ===
+    /Bold/i.test(box.fontName) &&
+  /(Italic|Oblique)/i.test(previous.fontName) ===
+    /(Italic|Oblique)/i.test(box.fontName);
+
+const isStandaloneMarker = (text: string) =>
+  /^[^\p{L}\p{N}]$/u.test(text.trim());
+
+const standaloneMarker =
+  isStandaloneMarker(previous.text) || isStandaloneMarker(box.text);
+
+    if (
+  sameLine &&
+  closeEnough &&
+  similarSize &&
+  sameFont &&
+  sameStyle &&
+  !standaloneMarker
+) {
+      const needsSpace =
+        gap >
+        Math.max(
+          previous.fontSize * 0.15,
+          1
+        );
+
+      previous.text =
+        previous.text +
+        (needsSpace ? " " : "") +
+        box.text;
+
+      previous.width =
+        Math.max(
+          previousRight,
+          box.left + box.width
+        ) - previous.left;
+
+      previous.height =
+        Math.max(
+          previous.height,
+          box.height
+        );
+
+      previous.id =
+        `${previous.id}-${box.id}`;
+        previous.sourceItemIndexes = [
+  ...previous.sourceItemIndexes,
+  ...box.sourceItemIndexes,
+];
+    } else {
+      grouped.push({ ...box });
+    }
+  }
+
+  return grouped;
+};
+  // C: Same extraction signature; only background-colour sampling changes.
+  const sampleBackgroundColor = (
+    context: CanvasRenderingContext2D,
+    left: number,
+    top: number,
+    width: number,
+    height: number,
+    outputScale = 1
+  ) => {
+    try {
+      const x0 = Math.max(0, Math.floor(left * outputScale));
+      const y0 = Math.max(0, Math.floor(top * outputScale));
+      const x1 = Math.min(context.canvas.width, Math.ceil((left + width) * outputScale));
+      const y1 = Math.min(context.canvas.height, Math.ceil((top + height) * outputScale));
+      if (x1 - x0 < 1 || y1 - y0 < 1) return "rgb(255, 255, 255)";
+      const data = context.getImageData(x0, y0, x1 - x0, y1 - y0).data;
+      const [r, g, b] = estimateBackground(data);
+      return `rgb(${r}, ${g}, ${b})`;
+    } catch {
+      return "rgb(255, 255, 255)";
+    }
+  };
+const handleImageFile = (
+  selectedFile?: File,
+  useVisiblePlacement = false
+) => {
+  if (!selectedFile) return;
+
+  if (
+    selectedFile.type !== "image/png" &&
+    selectedFile.type !== "image/jpeg"
+  ) {
+    alert("Please select a PNG or JPG image.");
+    return;
+  }
+
+  const reader = new FileReader();
+
+  reader.onload = () => {
+    const src = reader.result as string;
+    const image = new Image();
+
+    image.onload = () => {
+      imageCounterRef.current += 1;
+
+      const maxWidth = 220;
+      const width = Math.min(image.naturalWidth, maxWidth);
+      const height =
+        (image.naturalHeight / image.naturalWidth) * width;
+        const placement = useVisiblePlacement
+  ? getVisibleImagePlacement(width, height)
+  : {
+      left: Math.max(20, (pageSize.width - width) / 2),
+      top: Math.max(20, (pageSize.height - height) / 2),
+    };
+
+      const newImage: ImageBox = {
+        id: `image-${imageCounterRef.current}`,
+        pageNumber,
+        viewScale: scale,
+        viewRotation: rotation,
+        src,
+        mimeType: selectedFile.type as
+          | "image/png"
+          | "image/jpeg",
+        left: placement.left,
+        top: placement.top,
+        width,
+        height,
+      };
+
+      setImageBoxes((current) => [...current, newImage]);
+      setSelectedImageId(newImage.id);
+setSelectedTextId(null);
+    };
+
+    image.src = src;
+  };
+
+  reader.readAsDataURL(selectedFile);
+};
+const handleSignatureImageFile = (selectedFile?: File) => {
+  if (!selectedFile) return;
+
+  handleImageFile(selectedFile, true);
+
+  setShowSignDialog(false);
+  setSignDialogMode("type");
+};
+const startSignatureCamera = async () => {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: true,
+      audio: false,
+    });
+
+    signatureCameraStreamRef.current = stream;
+
+    const video = signatureCameraVideoRef.current;
+
+    if (video) {
+      video.srcObject = stream;
+      await video.play();
+    }
+  } catch {
+    alert("Unable to access camera. Please allow camera permission.");
+  }
+};
+
+const stopSignatureCamera = () => {
+  const stream = signatureCameraStreamRef.current;
+
+  if (stream) {
+    stream.getTracks().forEach((track) => track.stop());
+  }
+
+  signatureCameraStreamRef.current = null;
+
+  const video = signatureCameraVideoRef.current;
+
+  if (video) {
+    video.srcObject = null;
+  }
+};
+const captureSignatureCamera = () => {
+  const video = signatureCameraVideoRef.current;
+  if (!video || !video.videoWidth || !video.videoHeight) return;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+
+  const context = canvas.getContext("2d");
+  if (!context) return;
+
+  context.drawImage(
+    video,
+    0,
+    0,
+    canvas.width,
+    canvas.height
+  );
+
+  const src = canvas.toDataURL("image/png");
+
+  imageCounterRef.current += 1;
+
+  const width = 220;
+  const height =
+    width * (canvas.height / canvas.width);
+    const placement =
+  getVisibleImagePlacement(width, height);
+
+  const newImage: ImageBox = {
+    id: `signature-camera-${imageCounterRef.current}`,
+    pageNumber,
+    viewScale: scale,
+    viewRotation: rotation,
+    src,
+    mimeType: "image/png",
+    left: placement.left,
+    top: placement.top,
+    width,
+    height,
+  };
+
+  setImageBoxes((current) => [
+    ...current,
+    newImage,
+  ]);
+
+  setSelectedImageId(newImage.id);
+  setSelectedTextId(null);
+
+  stopSignatureCamera();
+
+  setShowSignDialog(false);
+  setSignDialogMode("type");
+};
+  const handleFile = async (selectedFile?: File) => {
+    if (!selectedFile) return;
+
+    if (selectedFile.type !== "application/pdf") {
+      alert("Please select a PDF file.");
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError("");
+
+      const pdfjsLib = await import("pdfjs-dist");
+
+      pdfjsLib.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
+
+      const arrayBuffer = await selectedFile.arrayBuffer();
+
+const sourceBytes = new Uint8Array(arrayBuffer);
+
+setPdfSourceBytes(sourceBytes.slice());
+
+const loadedPdf = await pdfjsLib.getDocument({
+  data: sourceBytes,
+}).promise;
+
+      setFile(selectedFile);
+      await loadPageViewportSizes(loadedPdf);
+    setPdfDoc(loadedPdf);
+
+      setPageCount(loadedPdf.numPages);
+      setPageNumber(1);
+
+      if (typeof window !== "undefined" && window.innerWidth < 768) { const firstPage = await loadedPdf.getPage(1); const baseViewport = firstPage.getViewport({ scale: 1 }); const mobileAvailableWidth = Math.max(window.innerWidth - 16, 280); setScale(Math.min(2.3, mobileAvailableWidth / baseViewport.width)); } else { setScale(2.3); }
+      setRotation(0);
+
+      setTextBoxes([]);
+      setSelectedTextId(null);
+      setTextEdits({});
+      setEditBoxes({});
+    } catch (err) {
+      console.error(err);
+
+      setError("Unable to open this PDF. Please try another file.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!pdfDoc || !canvasRef.current) return;
+
+    const getSavedNewText = () =>
+      Object.values(editBoxesRef.current).filter(
+        (box) => box.isNew && box.pageNumber === pageNumber
+      );
+
+    let cancelled = false;
+
+
+    let renderTask:
+      | {
+          promise: Promise<void>;
+          cancel: () => void;
+        }
+      | null = null;
+
+    const renderPage = async () => {
+      try {
+        setRendering(true);
+        // Keep the tapped preview text ID until extraction finishes. Some
+        // mobile PDFs contain overlapping text spans removed by de-duplication.
+        const pendingPreviewSelectionId = pendingPreviewTextIdRef.current;
+        setSelectedTextId(pendingPreviewSelectionId);
+        pendingPreviewTextIdRef.current = null;
+        setMoveMode(false);
+        setTextBoxes(getSavedNewText());
+
+        const page = await pdfDoc.getPage(pageNumber);
+
+        if (cancelled) return;
+
+        const viewport = page.getViewport({
+          scale,
+          rotation,
+        });
+
+        const canvas = canvasRef.current;
+
+        if (!canvas) return;
+
+        const context = canvas.getContext("2d");
+
+        if (!context) return;
+
+        const width = viewport.width;
+const height = viewport.height;
+
+const outputScale = Math.min(
+  Math.max(window.devicePixelRatio || 1, 2),
+  3
+);
+
+canvas.width = Math.floor(width * outputScale);
+canvas.height = Math.floor(height * outputScale);
+
+canvas.style.width = `${width}px`;
+canvas.style.height = `${height}px`;
+
+setPageSize({ width, height });
+
+context.setTransform(1, 0, 0, 1, 0, 0);
+context.clearRect(0, 0, canvas.width, canvas.height);
+
+renderTask = page.render({
+  canvasContext: context,
+  viewport,
+  canvas,
+  transform: [outputScale, 0, 0, outputScale, 0, 0],
+});
+
+await renderTask.promise;
+if (cancelled) return;
+
+        let textContent;
+
+        const isSafariLike =
+          typeof navigator !== "undefined" &&
+          /AppleWebKit/i.test(navigator.userAgent) &&
+          !/Chrome|Chromium|Edg/i.test(navigator.userAgent);
+
+        if (isSafariLike) {
+          const readableStream = page.streamTextContent();
+          const reader = readableStream.getReader();
+
+          const mergedTextContent: Awaited<ReturnType<typeof page.getTextContent>> = {
+            items: [],
+            styles: {},
+            lang: null,
+          };
+
+          try {
+            while (true) {
+              const { value, done } = await reader.read();
+
+              if (done) break;
+              if (!value) continue;
+
+              if (value.lang && !mergedTextContent.lang) {
+                mergedTextContent.lang = value.lang;
+              }
+
+              Object.assign(
+                mergedTextContent.styles,
+                value.styles ?? {}
+              );
+
+              if (Array.isArray(value.items)) {
+                mergedTextContent.items.push(
+                  ...value.items
+                );
+              }
+            }
+          } finally {
+            reader.releaseLock();
+          }
+
+          textContent = mergedTextContent;
+        } else {
+          textContent = await page.getTextContent();
+        }
+
+        const pdfjsLib = await import("pdfjs-dist");
+
+        const extractedText: TextBox[] = textContent.items.flatMap(
+          (item, index) => {
+            if (!("str" in item)) return [];
+            if (!item.str.trim()) return [];
+
+            const transformed = pdfjsLib.Util.transform(
+              viewport.transform,
+              item.transform
+            );
+
+            const angle =
+              (Math.atan2(transformed[1], transformed[0]) * 180) / Math.PI;
+
+            const fontHeight = Math.max(
+              Math.hypot(transformed[2], transformed[3]),
+              6
+            );
+
+            const textWidth = Math.max(Math.abs(item.width * scale), 4);
+
+            const left = transformed[4];
+
+            const top = transformed[5] - fontHeight;
+
+            const textStyle = textContent.styles[item.fontName];
+const commonObjs = page.commonObjs as unknown as {
+  has: (id: string) => boolean;
+  get: (id: string) => {
+    name?: string;
+    loadedName?: string;
+    fallbackName?: string;
+  };
+};
+
+const fontData = commonObjs.has(item.fontName)
+  ? commonObjs.get(item.fontName)
+  : undefined;
+
+const rawFontName =
+  fontData?.name ||
+  fontData?.loadedName ||
+  textStyle?.fontFamily ||
+  item.fontName ||
+  "Arial";
+
+const cleanedFontName = rawFontName
+  .replace(/^[A-Z]{6}\+/, "")
+  .replace(/-\d+$/, "")
+  .replace(
+    /[-\s]?(Regular|BoldItalic|BoldOblique|Bold|Italic|Oblique)$/i,
+    ""
+  )
+  .trim();
+
+const fontFamily =
+  /^Roboto/i.test(cleanedFontName)
+    ? "Roboto"
+    : /^OpenSans/i.test(cleanedFontName)
+    ? "Open Sans"
+    : /^Arial(?:MT)?/i.test(cleanedFontName)
+    ? "Arial"
+    : /^Georgia/i.test(cleanedFontName)
+    ? "Georgia"
+    : /^Verdana/i.test(cleanedFontName)
+    ? "Verdana"
+    : /^Tahoma/i.test(cleanedFontName)
+    ? "Tahoma"
+    : /^Trebuchet/i.test(cleanedFontName)
+    ? "Trebuchet MS"
+    : /^Garamond/i.test(cleanedFontName)
+    ? "Garamond"
+    : /^Palatino/i.test(cleanedFontName)
+    ? "Palatino Linotype"
+    : /^Bookman/i.test(cleanedFontName)
+    ? "Bookman"
+    : /^Century\s*Gothic/i.test(cleanedFontName)
+    ? "Century Gothic"
+    : /^Calibri/i.test(cleanedFontName)
+    ? "Calibri"
+    : /^Cambria/i.test(cleanedFontName)
+    ? "Cambria"
+    : cleanedFontName;
+
+            return [
+              {
+                id: `${pageNumber}-${index}`,
+pageNumber,
+viewScale: scale,
+viewRotation: rotation,
+text: item.str,
+
+                left,
+                top,
+
+                width: textWidth,
+                height: fontHeight,
+
+                angle,
+
+                fontSize: fontHeight,
+
+                fontFamily,
+fontName: rawFontName,
+sourceItemIndexes: [index],
+                backgroundColor: sampleBackgroundColor(
+  context,
+  left,
+  top,
+  textWidth,
+  fontHeight,
+  outputScale
+),
+              },
+            ];
+          }
+        );
+
+        const groupedText = groupTextIntoLines(extractedText);
+
+        const isMobileEditor =
+          typeof window !== "undefined" &&
+          window.innerWidth < 768;
+
+        if (!isMobileEditor) {
+          setTextBoxes([...groupedText, ...getSavedNewText()]);
+        } else {
+          const cleanedMobileText = groupedText.filter(
+            (box, index, allBoxes) => {
+              // Never discard the exact text the user just tapped in a preview.
+              // Otherwise selectedTextId exists but has no matching toolbar box.
+              if (box.id === pendingPreviewSelectionId) return true;
+              const boxText = box.text.trim();
+
+              if (!boxText) return false;
+
+              return !allBoxes.some((other, otherIndex) => {
+                if (otherIndex === index) return false;
+
+                const otherText = other.text.trim();
+
+                if (
+                  !otherText ||
+                  otherText.length <= boxText.length
+                ) {
+                  return false;
+                }
+
+                const sameLine =
+                  Math.abs(other.top - box.top) <=
+                  Math.max(other.height, box.height) * 0.45;
+
+                if (!sameLine) return false;
+
+                const boxRight = box.left + box.width;
+                const otherRight = other.left + other.width;
+
+                const overlap =
+                  Math.min(boxRight, otherRight) -
+                  Math.max(box.left, other.left);
+
+                const hasHorizontalOverlap =
+                  overlap >
+                  Math.min(box.width, other.width) * 0.35;
+
+                if (!hasHorizontalOverlap) return false;
+
+                const normalizedBox =
+                  boxText.replace(/\s+/g, " ");
+
+                const normalizedOther =
+                  otherText.replace(/\s+/g, " ");
+
+                return normalizedOther.includes(normalizedBox);
+              });
+            }
+          );
+
+          setTextBoxes([...cleanedMobileText, ...getSavedNewText()]);
+        }
+      } catch (err) {
+        if (
+          err instanceof Error &&
+          err.name === "RenderingCancelledException"
+        ) {
+          return;
+        }
+
+        console.error("PDF render error:", err);
+      } finally {
+        if (!cancelled) {
+          setRendering(false);
+        }
+      }
+    };
+
+    renderPage();
+
+    return () => {
+      cancelled = true;
+
+      if (renderTask) {
+        renderTask.cancel();
+      }
+    };
+  }, [pdfDoc, pageNumber, scale, rotation]);
+  const cssColorToRgb = (color: string) => {
+  const match = color.match(
+    /rgb\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)/
+  );
+
+  if (!match) {
+    return {
+      r: 1,
+      g: 1,
+      b: 1,
+    };
+  }
+
+  return {
+    r: Number(match[1]) / 255,
+    g: Number(match[2]) / 255,
+    b: Number(match[3]) / 255,
+  };
+};
+const hexColorToRgb = (color: string) => {
+  const hex = color.replace("#", "");
+
+  if (!/^[0-9A-Fa-f]{6}$/.test(hex)) {
+    return {
+      r: 0,
+      g: 0,
+      b: 0,
+    };
+  }
+
+  return {
+    r: parseInt(hex.slice(0, 2), 16) / 255,
+    g: parseInt(hex.slice(2, 4), 16) / 255,
+    b: parseInt(hex.slice(4, 6), 16) / 255,
+  };
+};
+const viewportPointToPdfPoint = async (
+  x: number,
+  y: number,
+  targetPageNumber: number,
+  viewScale: number,
+  viewRotation: number
+) => {
+  if (!pdfDoc) {
+    return null;
+  }
+
+  const page = await pdfDoc.getPage(targetPageNumber);
+
+  const viewport = page.getViewport({
+    scale: viewScale,
+    rotation: viewRotation,
+  });
+
+  const [pdfX, pdfY] = viewport.convertToPdfPoint(x, y);
+
+  return {
+    x: pdfX,
+    y: pdfY,
+  };
+};
+const insertPageAt = async (
+  insertIndex: number,
+  referencePageNumber: number
+) => {
+  if (pageCount === 0) {
+  if (!emptyPageTemplate) return;
+
+  try {
+    setError("");
+
+    const { PDFDocument, degrees } = await import("pdf-lib");
+    const pdfjsLib = await import("pdfjs-dist");
+
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      "/pdf.worker.min.mjs";
+
+    const newPdf = await PDFDocument.create();
+
+    const newPage = newPdf.addPage([
+      emptyPageTemplate.width,
+      emptyPageTemplate.height,
+    ]);
+
+    newPage.setRotation(
+      degrees(emptyPageTemplate.rotation)
+    );
+
+    const updatedBytes = await newPdf.save();
+    const newSourceBytes = updatedBytes.slice();
+
+    const loadedPdf = await pdfjsLib.getDocument({
+      data: newSourceBytes.slice(),
+    }).promise;
+
+    setPdfSourceBytes(newSourceBytes);
+    await loadPageViewportSizes(loadedPdf);
+    setPdfDoc(loadedPdf);
+    setPageCount(1);
+    setPageNumber(1);
+    setRotation(0);
+
+    return;
+  } catch (err) {
+    console.error(err);
+    setError("Unable to create a new page.");
+    return;
+  }
+}
+
+if (!pdfSourceBytes || !pdfDoc) return;
+
+  try {
+    setError("");
+
+    const { PDFDocument } = await import("pdf-lib");
+    const pdfjsLib = await import("pdfjs-dist");
+
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      "/pdf.worker.min.mjs";
+
+    const workingPdf = await PDFDocument.load(
+      pdfSourceBytes.slice()
+    );
+
+    const referencePage = workingPdf.getPage(
+      referencePageNumber - 1
+    );
+
+    const { width, height } = referencePage.getSize();
+
+    const newPage = workingPdf.insertPage(
+      insertIndex,
+      [width, height]
+    );
+
+    newPage.setRotation(referencePage.getRotation());
+
+    const updatedBytes = await workingPdf.save();
+    const newSourceBytes = updatedBytes.slice();
+
+    const loadedPdf = await pdfjsLib.getDocument({
+      data: newSourceBytes.slice(),
+    }).promise;
+
+    const shiftPage = <
+      T extends { pageNumber: number },
+    >(
+      item: T
+    ): T =>
+      item.pageNumber > insertIndex
+        ? {
+            ...item,
+            pageNumber: item.pageNumber + 1,
+          }
+        : item;
+
+    setTextBoxes((current) =>
+      current.map(shiftPage)
+    );
+
+    setImageBoxes((current) =>
+      current.map(shiftPage)
+    );
+
+    setWhiteoutBoxes((current) =>
+      current.map(shiftPage)
+    );
+
+    setAnnotateBoxes((current) =>
+      current.map(shiftPage)
+    );
+
+    setLinkBoxes((current) =>
+      current.map(shiftPage)
+    );
+
+    setFormFields((current) =>
+      current.map(shiftPage)
+    );
+
+    setShapeBoxes((current) =>
+      current.map(shiftPage)
+    );
+
+    setPdfSourceBytes(newSourceBytes);
+    await loadPageViewportSizes(loadedPdf);
+    setPdfDoc(loadedPdf);
+    setPageCount(loadedPdf.numPages);
+
+    setPageNumber(insertIndex + 1);
+    setRotation(0);
+
+    setSelectedTextId(null);
+    setSelectedImageId(null);
+    setSelectedWhiteoutId(null);
+    setSelectedAnnotateId(null);
+    setSelectedLinkBoxId(null);
+    setSelectedFormFieldId(null);
+    setSelectedShapeId(null);
+
+    setShowLinkProperties(false);
+    setShowFormProperties(false);
+    setShowShapeProperties(false);
+  } catch (err) {
+    console.error(err);
+    setError("Unable to insert a new page.");
+  }
+};
+const deletePageAt = async (
+  pageToDelete: number
+) => {
+  if (!pdfSourceBytes || !pdfDoc) return;
+
+  
+  try {
+    setError("");
+
+    const { PDFDocument } = await import("pdf-lib");
+    const pdfjsLib = await import("pdfjs-dist");
+
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      "/pdf.worker.min.mjs";
+
+    const workingPdf = await PDFDocument.load(
+      pdfSourceBytes.slice()
+    );
+if (workingPdf.getPageCount() === 1) {
+  const onlyPage = workingPdf.getPage(0);
+
+  const { width, height } = onlyPage.getSize();
+
+  setEmptyPageTemplate({
+    width,
+    height,
+    rotation: onlyPage.getRotation().angle,
+  });
+
+  setPdfSourceBytes(null);
+  setPdfDoc(null);
+  setPageViewportSizes({});
+  setPageCount(0);
+  setPageNumber(0);
+  setRotation(0);
+
+  setTextBoxes([]);
+  setImageBoxes([]);
+  setWhiteoutBoxes([]);
+  setAnnotateBoxes([]);
+  setLinkBoxes([]);
+  setFormFields([]);
+  setShapeBoxes([]);
+
+  setSelectedTextId(null);
+  setSelectedImageId(null);
+  setSelectedWhiteoutId(null);
+  setSelectedAnnotateId(null);
+  setSelectedLinkBoxId(null);
+  setSelectedFormFieldId(null);
+  setSelectedShapeId(null);
+
+  setShowLinkProperties(false);
+  setShowFormProperties(false);
+  setShowShapeProperties(false);
+
+  return;
+}
+    workingPdf.removePage(pageToDelete - 1);
+
+    const updatedBytes = await workingPdf.save();
+    const newSourceBytes = updatedBytes.slice();
+
+    const loadedPdf = await pdfjsLib.getDocument({
+      data: newSourceBytes.slice(),
+    }).promise;
+
+    const removeAndShift = <
+      T extends { pageNumber: number },
+    >(
+      items: T[]
+    ) =>
+      items
+        .filter(
+          (item) =>
+            item.pageNumber !== pageToDelete
+        )
+        .map((item) =>
+          item.pageNumber > pageToDelete
+            ? {
+                ...item,
+                pageNumber: item.pageNumber - 1,
+              }
+            : item
+        );
+
+    setTextBoxes((current) =>
+      removeAndShift(current)
+    );
+
+    setImageBoxes((current) =>
+      removeAndShift(current)
+    );
+
+    setWhiteoutBoxes((current) =>
+      removeAndShift(current)
+    );
+
+    setAnnotateBoxes((current) =>
+      removeAndShift(current)
+    );
+
+    setLinkBoxes((current) =>
+      removeAndShift(current)
+    );
+
+    setFormFields((current) =>
+      removeAndShift(current)
+    );
+
+    setShapeBoxes((current) =>
+      removeAndShift(current)
+    );
+
+    setPdfSourceBytes(newSourceBytes);
+    await loadPageViewportSizes(loadedPdf);
+    setPdfDoc(loadedPdf);
+    setPageCount(loadedPdf.numPages);
+
+    const nextPageNumber = Math.min(
+      pageToDelete,
+      loadedPdf.numPages
+    );
+
+    setPageNumber(nextPageNumber);
+    setRotation(0);
+
+    setSelectedTextId(null);
+    setSelectedImageId(null);
+    setSelectedWhiteoutId(null);
+    setSelectedAnnotateId(null);
+    setSelectedLinkBoxId(null);
+    setSelectedFormFieldId(null);
+    setSelectedShapeId(null);
+
+    setShowLinkProperties(false);
+    setShowFormProperties(false);
+    setShowShapeProperties(false);
+  } catch (err) {
+    console.error(err);
+    setError("Unable to delete this page.");
+  }
+};
+const applyChanges = async () => {
+  if (!file || exporting) return;
+
+  try {
+    setExporting(true);
+    setSelectedTextId(null);
+    setMoveMode(false);
+
+    const {
+  PDFDocument,
+  StandardFonts,
+  rgb,
+  degrees,
+  PDFName,
+  PDFArray,
+  PDFString,
+  PDFRawStream,
+  PDFRef,
+  decodePDFRawStream,
+  arrayAsString,
+} = await import("pdf-lib");
+
+    const originalBytes = pdfSourceBytes
+  ? pdfSourceBytes.slice()
+  : new Uint8Array(await file.arrayBuffer());
+
+    const outputPdf = await PDFDocument.load(originalBytes);
+    // Remove existing PDF text layers at the original
+// position before drawing the edited replacement text.
+const removeExistingTextLayersAtPosition = async (
+  box: TextBox
+) => {
+  if (box.isNew) return;
+
+  const targetPoint =
+    await viewportPointToPdfPoint(
+      box.left,
+      box.top +
+        Math.max(
+          box.fontSize,
+          box.height
+        ),
+      box.pageNumber,
+      box.viewScale,
+      box.viewRotation
+    );
+
+  if (!targetPoint) return;
+
+  const targetPage =
+    outputPdf.getPage(box.pageNumber - 1);
+
+  const { Contents } =
+    targetPage.node.normalizedEntries();
+
+  if (!Contents) return;
+
+  const targetX = targetPoint.x;
+  const targetY = targetPoint.y;
+
+  // Small tolerance for decimal coordinate differences.
+  const coordinateTolerance = 0.75;
+
+  const numberPattern =
+    "[-+]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)";
+
+  const createTextAtTmRegex = () =>
+    new RegExp(
+      `((?:${numberPattern})\\s+` +
+        `(?:${numberPattern})\\s+` +
+        `(?:${numberPattern})\\s+` +
+        `(?:${numberPattern})\\s+` +
+        `(${numberPattern})\\s+` +
+        `(${numberPattern})\\s+Tm\\s*)` +
+        `((?:\\((?:\\\\.|[^\\\\)])*\\)|<[^>]*>|\\[[\\s\\S]*?\\])\\s*)` +
+        `(Tj|TJ)`,
+      "g"
+    );
+
+  Contents.asArray().forEach((contentRef) => {
+    if (!(contentRef instanceof PDFRef)) return;
+
+    const contentObject =
+      outputPdf.context.lookup(contentRef);
+
+    if (!(contentObject instanceof PDFRawStream)) {
+      return;
+    }
+
+    try {
+      const decodedBytes =
+        decodePDFRawStream(contentObject).decode();
+
+      const decodedText =
+        arrayAsString(decodedBytes);
+
+      let changed = false;
+
+      const updatedText =
+        decodedText.replace(
+          createTextAtTmRegex(),
+          (
+            fullMatch,
+            matrixPart,
+            xValue,
+            yValue,
+            _textOperand,
+            operator
+          ) => {
+            const currentX = Number(xValue);
+            const currentY = Number(yValue);
+
+            const samePosition =
+              Math.abs(currentX - targetX) <=
+                coordinateTolerance &&
+              Math.abs(currentY - targetY) <=
+                coordinateTolerance;
+
+            if (!samePosition) {
+              return fullMatch;
+            }
+
+            changed = true;
+            
+            return operator === "TJ"
+              ? `${matrixPart}[] TJ`
+              : `${matrixPart}() Tj`;
+          }
+        );
+
+      if (!changed) return;
+
+      const updatedBytes =
+        Uint8Array.from(
+          updatedText,
+          (character) =>
+            character.charCodeAt(0) & 0xff
+        );
+
+      const newStream =
+        outputPdf.context.flateStream(
+          updatedBytes
+        );
+
+      outputPdf.context.assign(
+        contentRef,
+        newStream
+      );
+    } catch (error) {
+      console.error(
+        "TEXT LAYER REMOVAL FAILED:",
+        box.text,
+        error
+      );
+    }
+  });
+
+  
+};
+    const fontkitModule = await import("@pdf-lib/fontkit");
+const fontkit = fontkitModule.default;
+
+outputPdf.registerFontkit(fontkit);
+
+const loadFontBytes = async (path: string) => {
+  const response = await fetch(path);
+
+  if (!response.ok) {
+    throw new Error(`Unable to load font: ${path}`);
+  }
+
+  return new Uint8Array(
+    await response.arrayBuffer()
+  );
+};
+
+const [
+  robotoRegularBytes,
+  robotoItalicBytes,
+  robotoBoldBytes,
+  robotoBoldItalicBytes,
+] = await Promise.all([
+  loadFontBytes("/fonts/roboto-400-normal.woff"),
+  loadFontBytes("/fonts/roboto-400-italic.woff"),
+  loadFontBytes("/fonts/roboto-700-normal.woff"),
+  loadFontBytes("/fonts/roboto-700-italic.woff"),
+]);
+const [
+  openSansRegularBytes,
+  openSansItalicBytes,
+  openSansBoldBytes,
+  openSansBoldItalicBytes,
+] = await Promise.all([
+  loadFontBytes("/fonts/open-sans-400-normal.woff"),
+  loadFontBytes("/fonts/open-sans-400-italic.woff"),
+  loadFontBytes("/fonts/open-sans-700-normal.woff"),
+  loadFontBytes("/fonts/open-sans-700-italic.woff"),
+]);
+const [
+  arialRegularBytes,
+  arialItalicBytes,
+  arialBoldBytes,
+  arialBoldItalicBytes,
+] = await Promise.all([
+  loadFontBytes("/fonts/arial-400-normal.ttf"),
+  loadFontBytes("/fonts/arial-400-italic.ttf"),
+  loadFontBytes("/fonts/arial-700-normal.ttf"),
+  loadFontBytes("/fonts/arial-700-italic.ttf"),
+]);
+const [
+  georgiaRegularBytes,
+  georgiaItalicBytes,
+  georgiaBoldBytes,
+  georgiaBoldItalicBytes,
+] = await Promise.all([
+  loadFontBytes("/fonts/georgia-400-normal.ttf"),
+  loadFontBytes("/fonts/georgia-400-italic.ttf"),
+  loadFontBytes("/fonts/georgia-700-normal.ttf"),
+  loadFontBytes("/fonts/georgia-700-italic.ttf"),
+]);
+const [
+  verdanaRegularBytes,
+  verdanaItalicBytes,
+  verdanaBoldBytes,
+  verdanaBoldItalicBytes,
+] = await Promise.all([
+  loadFontBytes("/fonts/verdana-400-normal.ttf"),
+  loadFontBytes("/fonts/verdana-400-italic.ttf"),
+  loadFontBytes("/fonts/verdana-700-normal.ttf"),
+  loadFontBytes("/fonts/verdana-700-italic.ttf"),
+]);
+const [
+  tahomaRegularBytes,
+  tahomaBoldBytes,
+] = await Promise.all([
+  loadFontBytes("/fonts/tahoma-400-normal.ttf"),
+  loadFontBytes("/fonts/tahoma-700-normal.ttf"),
+]);
+const [
+  trebuchetRegularBytes,
+  trebuchetItalicBytes,
+  trebuchetBoldBytes,
+  trebuchetBoldItalicBytes,
+] = await Promise.all([
+  loadFontBytes("/fonts/trebuchet-400-normal.ttf"),
+  loadFontBytes("/fonts/trebuchet-400-italic.ttf"),
+  loadFontBytes("/fonts/trebuchet-700-normal.ttf"),
+  loadFontBytes("/fonts/trebuchet-700-italic.ttf"),
+]);
+const [
+  garamondRegularBytes,
+  garamondItalicBytes,
+  garamondBoldBytes,
+] = await Promise.all([
+  loadFontBytes("/fonts/garamond-400-normal.ttf"),
+  loadFontBytes("/fonts/garamond-400-italic.ttf"),
+  loadFontBytes("/fonts/garamond-700-normal.ttf"),
+]);
+const [
+  palatinoRegularBytes,
+  palatinoItalicBytes,
+  palatinoBoldBytes,
+  palatinoBoldItalicBytes,
+] = await Promise.all([
+  loadFontBytes("/fonts/palatino-400-normal.ttf"),
+  loadFontBytes("/fonts/palatino-400-italic.ttf"),
+  loadFontBytes("/fonts/palatino-700-normal.ttf"),
+  loadFontBytes("/fonts/palatino-700-italic.ttf"),
+]);
+const [
+  bookmanRegularBytes,
+  bookmanItalicBytes,
+  bookmanBoldBytes,
+  bookmanBoldItalicBytes,
+] = await Promise.all([
+  loadFontBytes("/fonts/bookman-400-normal.ttf"),
+  loadFontBytes("/fonts/bookman-400-italic.ttf"),
+  loadFontBytes("/fonts/bookman-700-normal.ttf"),
+  loadFontBytes("/fonts/bookman-700-italic.ttf"),
+]);
+const [
+  centuryGothicRegularBytes,
+  centuryGothicItalicBytes,
+  centuryGothicBoldBytes,
+  centuryGothicBoldItalicBytes,
+] = await Promise.all([
+  loadFontBytes("/fonts/century-gothic-400-normal.ttf"),
+  loadFontBytes("/fonts/century-gothic-400-italic.ttf"),
+  loadFontBytes("/fonts/century-gothic-700-normal.ttf"),
+  loadFontBytes("/fonts/century-gothic-700-italic.ttf"),
+]);
+const [
+  calibriRegularBytes,
+  calibriItalicBytes,
+  calibriBoldBytes,
+  calibriBoldItalicBytes,
+] = await Promise.all([
+  loadFontBytes("/fonts/calibri-400-normal.ttf"),
+  loadFontBytes("/fonts/calibri-400-italic.ttf"),
+  loadFontBytes("/fonts/calibri-700-normal.ttf"),
+  loadFontBytes("/fonts/calibri-700-italic.ttf"),
+]);
+const [
+  cambriaRegularBytes,
+  cambriaItalicBytes,
+  cambriaBoldBytes,
+  cambriaBoldItalicBytes,
+] = await Promise.all([
+  loadFontBytes("/fonts/cambria-400-normal.ttf"),
+  loadFontBytes("/fonts/cambria-400-italic.ttf"),
+  loadFontBytes("/fonts/cambria-700-normal.ttf"),
+  loadFontBytes("/fonts/cambria-700-italic.ttf"),
+]);
+const [
+  robotoRegularFont,
+  robotoItalicFont,
+  robotoBoldFont,
+  robotoBoldItalicFont,
+] = await Promise.all([
+  outputPdf.embedFont(robotoRegularBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(robotoItalicBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(robotoBoldBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(robotoBoldItalicBytes, {
+    subset: true,
+  }),
+]);
+const [
+  openSansRegularFont,
+  openSansItalicFont,
+  openSansBoldFont,
+  openSansBoldItalicFont,
+] = await Promise.all([
+  outputPdf.embedFont(openSansRegularBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(openSansItalicBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(openSansBoldBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(openSansBoldItalicBytes, {
+    subset: true,
+  }),
+]);
+const [
+  arialRegularFont,
+  arialItalicFont,
+  arialBoldFont,
+  arialBoldItalicFont,
+] = await Promise.all([
+  outputPdf.embedFont(arialRegularBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(arialItalicBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(arialBoldBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(arialBoldItalicBytes, {
+    subset: true,
+  }),
+]);
+const [
+  georgiaRegularFont,
+  georgiaItalicFont,
+  georgiaBoldFont,
+  georgiaBoldItalicFont,
+] = await Promise.all([
+  outputPdf.embedFont(georgiaRegularBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(georgiaItalicBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(georgiaBoldBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(georgiaBoldItalicBytes, {
+    subset: true,
+  }),
+]);
+const [
+  verdanaRegularFont,
+  verdanaItalicFont,
+  verdanaBoldFont,
+  verdanaBoldItalicFont,
+] = await Promise.all([
+  outputPdf.embedFont(verdanaRegularBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(verdanaItalicBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(verdanaBoldBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(verdanaBoldItalicBytes, {
+    subset: true,
+  }),
+]);
+const [
+  tahomaRegularFont,
+  tahomaBoldFont,
+] = await Promise.all([
+  outputPdf.embedFont(tahomaRegularBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(tahomaBoldBytes, {
+    subset: true,
+  }),
+]);
+const [
+  trebuchetRegularFont,
+  trebuchetItalicFont,
+  trebuchetBoldFont,
+  trebuchetBoldItalicFont,
+] = await Promise.all([
+  outputPdf.embedFont(trebuchetRegularBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(trebuchetItalicBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(trebuchetBoldBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(trebuchetBoldItalicBytes, {
+    subset: true,
+  }),
+]);
+const [
+  garamondRegularFont,
+  garamondItalicFont,
+  garamondBoldFont,
+] = await Promise.all([
+  outputPdf.embedFont(garamondRegularBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(garamondItalicBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(garamondBoldBytes, {
+    subset: true,
+  }),
+]);
+const [
+  palatinoRegularFont,
+  palatinoItalicFont,
+  palatinoBoldFont,
+  palatinoBoldItalicFont,
+] = await Promise.all([
+  outputPdf.embedFont(palatinoRegularBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(palatinoItalicBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(palatinoBoldBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(palatinoBoldItalicBytes, {
+    subset: true,
+  }),
+]);
+const [
+  bookmanRegularFont,
+  bookmanItalicFont,
+  bookmanBoldFont,
+  bookmanBoldItalicFont,
+] = await Promise.all([
+  outputPdf.embedFont(bookmanRegularBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(bookmanItalicBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(bookmanBoldBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(bookmanBoldItalicBytes, {
+    subset: true,
+  }),
+]);
+const [
+  centuryGothicRegularFont,
+  centuryGothicItalicFont,
+  centuryGothicBoldFont,
+  centuryGothicBoldItalicFont,
+] = await Promise.all([
+  outputPdf.embedFont(centuryGothicRegularBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(centuryGothicItalicBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(centuryGothicBoldBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(centuryGothicBoldItalicBytes, {
+    subset: true,
+  }),
+]);
+const [
+  calibriRegularFont,
+  calibriItalicFont,
+  calibriBoldFont,
+  calibriBoldItalicFont,
+] = await Promise.all([
+  outputPdf.embedFont(calibriRegularBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(calibriItalicBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(calibriBoldBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(calibriBoldItalicBytes, {
+    subset: true,
+  }),
+]);
+const [
+  cambriaRegularFont,
+  cambriaItalicFont,
+  cambriaBoldFont,
+  cambriaBoldItalicFont,
+] = await Promise.all([
+  outputPdf.embedFont(cambriaRegularBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(cambriaItalicBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(cambriaBoldBytes, {
+    subset: true,
+  }),
+
+  outputPdf.embedFont(cambriaBoldItalicBytes, {
+    subset: true,
+  }),
+]);
+    const pages = outputPdf.getPages();
+
+    const chooseFont = (edit: TextEdit) => {
+      const family = edit.fontFamily.toLowerCase();
+if (family.includes("roboto")) {
+  if (edit.bold && edit.italic) {
+    return robotoBoldItalicFont;
+  }
+
+  if (edit.bold) {
+    return robotoBoldFont;
+  }
+
+  if (edit.italic) {
+    return robotoItalicFont;
+  }
+
+  return robotoRegularFont;
+}
+ if (family.includes("open sans")) {
+  if (edit.bold && edit.italic) {
+    return openSansBoldItalicFont;
+  }
+
+  if (edit.bold) {
+    return openSansBoldFont;
+  }
+
+  if (edit.italic) {
+    return openSansItalicFont;
+  }
+
+  return openSansRegularFont;
+}
+if (family.includes("arial")) {
+  if (edit.bold && edit.italic) {
+    return arialBoldItalicFont;
+  }
+
+  if (edit.bold) {
+    return arialBoldFont;
+  }
+
+  if (edit.italic) {
+    return arialItalicFont;
+  }
+
+  return arialRegularFont;
+}
+if (family.includes("georgia")) {
+  if (edit.bold && edit.italic) {
+    return georgiaBoldItalicFont;
+  }
+
+  if (edit.bold) {
+    return georgiaBoldFont;
+  }
+
+  if (edit.italic) {
+    return georgiaItalicFont;
+  }
+
+  return georgiaRegularFont;
+}
+if (family.includes("verdana")) {
+  if (edit.bold && edit.italic) {
+    return verdanaBoldItalicFont;
+  }
+
+  if (edit.bold) {
+    return verdanaBoldFont;
+  }
+
+  if (edit.italic) {
+    return verdanaItalicFont;
+  }
+
+  return verdanaRegularFont;
+} 
+if (family.includes("tahoma")) {
+  if (edit.bold) {
+    return tahomaBoldFont;
+  }
+
+  return tahomaRegularFont;
+} 
+if (family.includes("trebuchet")) {
+  if (edit.bold && edit.italic) {
+    return trebuchetBoldItalicFont;
+  }
+
+  if (edit.bold) {
+    return trebuchetBoldFont;
+  }
+
+  if (edit.italic) {
+    return trebuchetItalicFont;
+  }
+
+  return trebuchetRegularFont;
+}
+if (family.includes("garamond")) {
+  if (edit.bold && edit.italic) {
+    return garamondItalicFont;
+  }
+
+  if (edit.bold) {
+    return garamondBoldFont;
+  }
+
+  if (edit.italic) {
+    return garamondItalicFont;
+  }
+
+  return garamondRegularFont;
+} 
+if (family.includes("palatino")) {
+  if (edit.bold && edit.italic) {
+    return palatinoBoldItalicFont;
+  }
+
+  if (edit.bold) {
+    return palatinoBoldFont;
+  }
+
+  if (edit.italic) {
+    return palatinoItalicFont;
+  }
+
+  return palatinoRegularFont;
+}
+if (family.includes("bookman")) {
+  if (edit.bold && edit.italic) {
+    return bookmanBoldItalicFont;
+  }
+
+  if (edit.bold) {
+    return bookmanBoldFont;
+  }
+
+  if (edit.italic) {
+    return bookmanItalicFont;
+  }
+
+  return bookmanRegularFont;
+}
+if (family.includes("century gothic")) {
+  if (edit.bold && edit.italic) {
+    return centuryGothicBoldItalicFont;
+  }
+
+  if (edit.bold) {
+    return centuryGothicBoldFont;
+  }
+
+  if (edit.italic) {
+    return centuryGothicItalicFont;
+  }
+
+  return centuryGothicRegularFont;
+}
+if (family.includes("calibri")) {
+  if (edit.bold && edit.italic) {
+    return calibriBoldItalicFont;
+  }
+
+  if (edit.bold) {
+    return calibriBoldFont;
+  }
+
+  if (edit.italic) {
+    return calibriItalicFont;
+  }
+
+  return calibriRegularFont;
+}
+if (family.includes("cambria")) {
+  if (edit.bold && edit.italic) {
+    return cambriaBoldItalicFont;
+  }
+
+  if (edit.bold) {
+    return cambriaBoldFont;
+  }
+
+  if (edit.italic) {
+    return cambriaItalicFont;
+  }
+
+  return cambriaRegularFont;
+}
+const isTimes =
+  family.includes("times");
+
+      const isCourier =
+        family.includes("courier") ||
+        family.includes("mono");
+
+      if (isTimes) {
+        if (edit.bold && edit.italic) {
+          return StandardFonts.TimesRomanBoldItalic;
+        }
+
+        if (edit.bold) {
+          return StandardFonts.TimesRomanBold;
+        }
+
+        if (edit.italic) {
+          return StandardFonts.TimesRomanItalic;
+        }
+
+        return StandardFonts.TimesRoman;
+      }
+
+      if (isCourier) {
+        if (edit.bold && edit.italic) {
+          return StandardFonts.CourierBoldOblique;
+        }
+
+        if (edit.bold) {
+          return StandardFonts.CourierBold;
+        }
+
+        if (edit.italic) {
+          return StandardFonts.CourierOblique;
+        }
+
+        return StandardFonts.Courier;
+      }
+
+      if (edit.bold && edit.italic) {
+        return StandardFonts.HelveticaBoldOblique;
+      }
+
+      if (edit.bold) {
+        return StandardFonts.HelveticaBold;
+      }
+
+      if (edit.italic) {
+        return StandardFonts.HelveticaOblique;
+      }
+
+      return StandardFonts.Helvetica;
+    };
+
+    const changedTextEntries: Array<{
+  id: string;
+  edit: TextEdit;
+  box: TextBox;
+}> = [];
+
+/*
+ * Build one deterministic list of changed text.
+ * Do not depend on React/object insertion order during export.
+ */
+for (const [id, edit] of Object.entries(textEdits)) {
+  const box = editBoxes[id];
+
+  if (!box) continue;
+
+  const originalBold =
+    /Bold/i.test(box.fontName);
+
+  const originalItalic =
+    /(Italic|Oblique)/i.test(box.fontName);
+
+  const hasChanged =
+    box.isNew ||
+    edit.deleted ||
+    edit.text !== box.text ||
+    edit.offsetX !== 0 ||
+    edit.offsetY !== 0 ||
+    edit.bold !== originalBold ||
+    edit.italic !== originalItalic ||
+    Math.abs(edit.fontSize - box.fontSize) > 0.01 ||
+    edit.fontFamily !== box.fontFamily ||
+    edit.color !== "#111111";
+
+  if (!hasChanged) continue;
+
+  changedTextEntries.push({
+    id,
+    edit,
+    box,
+  });
+}
+
+/*
+ * Keep export order stable on localhost, Vercel,
+ * Namecheap, Hostinger and other environments.
+ */
+changedTextEntries.sort((a, b) => {
+  return (
+    a.box.pageNumber - b.box.pageNumber ||
+    a.box.top - b.box.top ||
+    a.box.left - b.box.left ||
+    a.id.localeCompare(b.id)
+  );
+});
+
+/*
+ * PHASE 1
+ * Remove / mask ALL original text first.
+ *
+ * Important:
+ * No replacement text is drawn during this phase,
+ * so a later mask can never cover newly added text.
+ */
+for (const { box } of changedTextEntries) {
+  if (box.isNew) continue;
+
+  const outputPage =
+    pages[box.pageNumber - 1];
+
+  if (!outputPage) continue;
+
+  await removeExistingTextLayersAtPosition(box);
+
+  // Same tight mask as the mobile on-screen editor; no neighbouring rows.
+  const originalMask = originalTextMaskBounds(box);
+  const maskTopLeft =
+    await viewportPointToPdfPoint(
+      originalMask.left,
+      originalMask.top,
+      box.pageNumber,
+      box.viewScale,
+      box.viewRotation
+    );
+
+  const maskBottomRight =
+    await viewportPointToPdfPoint(
+      originalMask.left + originalMask.width,
+      originalMask.top + originalMask.height,
+      box.pageNumber,
+      box.viewScale,
+      box.viewRotation
+    );
+
+  if (!maskTopLeft || !maskBottomRight) {
+    continue;
+  }
+
+  const background =
+    cssColorToRgb(box.backgroundColor);
+
+  const maskX = Math.min(
+    maskTopLeft.x,
+    maskBottomRight.x
+  );
+
+  const maskY = Math.min(
+    maskTopLeft.y,
+    maskBottomRight.y
+  );
+
+  const maskWidth = Math.abs(
+    maskBottomRight.x - maskTopLeft.x
+  );
+
+  const maskHeight = Math.abs(
+    maskBottomRight.y - maskTopLeft.y
+  );
+
+  outputPage.drawRectangle({
+    x: maskX,
+    y: maskY,
+    width: maskWidth,
+    height: maskHeight,
+    color: rgb(
+      background.r,
+      background.g,
+      background.b
+    ),
+  });
+}
+
+for (const whiteoutBox of whiteoutBoxes) {
+  const outputPage = outputPdf.getPage(
+    whiteoutBox.pageNumber - 1
+  );
+
+  const topLeft = await viewportPointToPdfPoint(
+    whiteoutBox.left,
+    whiteoutBox.top,
+    whiteoutBox.pageNumber,
+    whiteoutBox.viewScale,
+    whiteoutBox.viewRotation
+  );
+
+  const bottomRight = await viewportPointToPdfPoint(
+    whiteoutBox.left + whiteoutBox.width,
+    whiteoutBox.top + whiteoutBox.height,
+    whiteoutBox.pageNumber,
+    whiteoutBox.viewScale,
+    whiteoutBox.viewRotation
+  );
+
+  if (!topLeft || !bottomRight) continue;
+
+  const x = Math.min(topLeft.x, bottomRight.x);
+  const y = Math.min(topLeft.y, bottomRight.y);
+
+  const width = Math.abs(bottomRight.x - topLeft.x);
+  const height = Math.abs(bottomRight.y - topLeft.y);
+
+  outputPage.drawRectangle({
+    x,
+    y,
+    width,
+    height,
+    color: rgb(1, 1, 1),
+  });
+}
+
+/*
+ * PHASE 2
+ * Only AFTER every original-text mask is finished,
+ * draw ALL edited / moved / new text.
+ */
+for (const { edit, box } of changedTextEntries) {
+  if (edit.deleted || !edit.text.trim()) {
+    continue;
+  }
+
+  const outputPage =
+    pages[box.pageNumber - 1];
+
+  if (!outputPage) continue;
+
+  const displayLeft =
+    box.left + edit.offsetX;
+
+  const displayTop =
+    box.top + edit.offsetY;
+
+  const textPoint =
+    await viewportPointToPdfPoint(
+      displayLeft,
+      displayTop +
+        (box.isNew
+          ? edit.fontSize * 0.93
+          : Math.max(edit.fontSize, box.height)),
+      box.pageNumber,
+      box.viewScale,
+      box.viewRotation
+    );
+
+  if (!textPoint) continue;
+
+  const selectedFont =
+    chooseFont(edit);
+
+  const font =
+    typeof selectedFont === "string"
+      ? await outputPdf.embedFont(
+          selectedFont
+        )
+      : selectedFont;
+
+  const textColor =
+    hexColorToRgb(edit.color);
+
+  const pdfFontSize = Math.max(
+    4,
+    edit.fontSize /
+      Math.max(box.viewScale, 0.01)
+  );
+
+  let pdfAngle =
+    box.angle - box.viewRotation;
+
+  while (pdfAngle > 180) {
+    pdfAngle -= 360;
+  }
+
+  while (pdfAngle < -180) {
+    pdfAngle += 360;
+  }
+
+  outputPage.drawText(edit.text, {
+    x: textPoint.x,
+    y: textPoint.y,
+    size: pdfFontSize,
+    font,
+    color: rgb(
+      textColor.r,
+      textColor.g,
+      textColor.b
+    ),
+    rotate: degrees(pdfAngle),
+    lineHeight:
+      pdfFontSize * 1.15,
+  });
+}
+for (const [id, edit] of Object.entries(textEdits)) {
+  const box = editBoxes[id];
+
+  if (!box || !edit.link.trim() || edit.deleted) continue;
+
+  const outputPage = pages[box.pageNumber - 1];
+
+  if (!outputPage) continue;
+
+  const linkLeft = box.left + edit.offsetX;
+  const linkTop = box.top + edit.offsetY;
+
+  const linkWidth = Math.max(
+    box.width,
+    edit.text.length * edit.fontSize * 0.6
+  );
+
+  const linkHeight = Math.max(
+    box.height,
+    edit.fontSize * 1.3
+  );
+
+  const point1 = await viewportPointToPdfPoint(
+    linkLeft,
+    linkTop,
+    box.pageNumber,
+    box.viewScale,
+    box.viewRotation
+  );
+
+  const point2 = await viewportPointToPdfPoint(
+    linkLeft + linkWidth,
+    linkTop + linkHeight,
+    box.pageNumber,
+    box.viewScale,
+    box.viewRotation
+  );
+if (!point1 || !point2) continue;
+  const x1 = Math.min(point1.x, point2.x);
+  const y1 = Math.min(point1.y, point2.y);
+  const x2 = Math.max(point1.x, point2.x);
+  const y2 = Math.max(point1.y, point2.y);
+
+  const linkAnnotation = outputPdf.context.obj({
+    Type: "Annot",
+    Subtype: "Link",
+    Rect: [x1, y1, x2, y2],
+    Border: [0, 0, 0],
+    A: {
+      Type: "Action",
+      S: "URI",
+      URI: PDFString.of(edit.link.trim()),
+    },
+  });
+
+  const linkAnnotationRef =
+    outputPdf.context.register(linkAnnotation);
+
+  outputPage.node.addAnnot(linkAnnotationRef);
+}
+for (const imageBox of imageBoxes) {
+  const outputPage = pages[imageBox.pageNumber - 1];
+
+  if (!outputPage) continue;
+
+  const response = await fetch(imageBox.src);
+  const imageBytes = await response.arrayBuffer();
+
+  const embeddedImage =
+    imageBox.mimeType === "image/png"
+      ? await outputPdf.embedPng(imageBytes)
+      : await outputPdf.embedJpg(imageBytes);
+
+  const topLeft = await viewportPointToPdfPoint(
+    imageBox.left,
+    imageBox.top,
+    imageBox.pageNumber,
+    imageBox.viewScale,
+    imageBox.viewRotation
+  );
+
+  const bottomRight = await viewportPointToPdfPoint(
+    imageBox.left + imageBox.width,
+    imageBox.top + imageBox.height,
+    imageBox.pageNumber,
+    imageBox.viewScale,
+    imageBox.viewRotation
+  );
+
+  if (!topLeft || !bottomRight) continue;
+
+  const x = Math.min(topLeft.x, bottomRight.x);
+  const y = Math.min(topLeft.y, bottomRight.y);
+
+  const width = Math.abs(bottomRight.x - topLeft.x);
+  const height = Math.abs(bottomRight.y - topLeft.y);
+
+  outputPage.drawImage(embeddedImage, {
+    x,
+    y,
+    width,
+    height,
+  });
+}
+for (const annotateBox of annotateBoxes) {
+  const outputPage = outputPdf.getPage(
+    annotateBox.pageNumber - 1
+  );
+
+  const topLeft = await viewportPointToPdfPoint(
+    annotateBox.left,
+    annotateBox.top,
+    annotateBox.pageNumber,
+    annotateBox.viewScale,
+    annotateBox.viewRotation
+  );
+
+  const bottomRight = await viewportPointToPdfPoint(
+    annotateBox.left + annotateBox.width,
+    annotateBox.top + annotateBox.height,
+    annotateBox.pageNumber,
+    annotateBox.viewScale,
+    annotateBox.viewRotation
+  );
+
+  if (!topLeft || !bottomRight) continue;
+
+  const x = Math.min(topLeft.x, bottomRight.x);
+  const y = Math.min(topLeft.y, bottomRight.y);
+  const width = Math.abs(bottomRight.x - topLeft.x);
+  const height = Math.abs(bottomRight.y - topLeft.y);
+
+  outputPage.drawRectangle({
+    x,
+    y,
+    width,
+    height,
+    color: rgb(1, 0.8, 0),
+    opacity: 0.35,
+  });
+}
+for (const linkBox of linkBoxes) {
+  if (!linkBox.url.trim()) continue;
+
+  const outputPage = outputPdf.getPage(
+    linkBox.pageNumber - 1
+  );
+
+  const topLeft = await viewportPointToPdfPoint(
+    linkBox.left,
+    linkBox.top,
+    linkBox.pageNumber,
+    linkBox.viewScale,
+    linkBox.viewRotation
+  );
+
+  const bottomRight = await viewportPointToPdfPoint(
+    linkBox.left + linkBox.width,
+    linkBox.top + linkBox.height,
+    linkBox.pageNumber,
+    linkBox.viewScale,
+    linkBox.viewRotation
+  );
+
+  if (!topLeft || !bottomRight) continue;
+
+  const x1 = Math.min(topLeft.x, bottomRight.x);
+  const y1 = Math.min(topLeft.y, bottomRight.y);
+  const x2 = Math.max(topLeft.x, bottomRight.x);
+  const y2 = Math.max(topLeft.y, bottomRight.y);
+
+  let linkAnnotation;
+
+  if (linkBox.url.startsWith("page:")) {
+    const targetPageNumber = Number(
+      linkBox.url.replace(/^page:/, "")
+    );
+
+    if (
+      !Number.isInteger(targetPageNumber) ||
+      targetPageNumber < 1 ||
+      targetPageNumber > outputPdf.getPageCount()
+    ) {
+      continue;
+    }
+
+    const targetPage = outputPdf.getPage(
+      targetPageNumber - 1
+    );
+
+    linkAnnotation = outputPdf.context.register(
+      outputPdf.context.obj({
+        Type: "Annot",
+        Subtype: "Link",
+        Rect: [x1, y1, x2, y2],
+        Border: [0, 0, 0],
+        Dest: [
+          targetPage.ref,
+          PDFName.of("Fit"),
+        ],
+      })
+    );
+  } else {
+    linkAnnotation = outputPdf.context.register(
+      outputPdf.context.obj({
+        Type: "Annot",
+        Subtype: "Link",
+        Rect: [x1, y1, x2, y2],
+        Border: [0, 0, 0],
+        A: {
+          Type: "Action",
+          S: "URI",
+          URI: PDFString.of(linkBox.url),
+        },
+      })
+    );
+  }
+
+  let annotations;
+
+  try {
+    annotations = outputPage.node.lookup(
+      PDFName.of("Annots"),
+      PDFArray
+    );
+  } catch {
+    annotations = outputPdf.context.obj([]);
+
+    outputPage.node.set(
+      PDFName.of("Annots"),
+      annotations
+    );
+  }
+
+  annotations.push(linkAnnotation);
+}
+const pdfForm = outputPdf.getForm();
+const formFont = await outputPdf.embedFont(
+  StandardFonts.Helvetica
+);
+const createdRadioGroups = new Set<string>();
+for (const field of formFields) {
+  const outputPage = outputPdf.getPage(field.pageNumber - 1);
+  const { width: pageWidth, height: pageHeight } =
+    outputPage.getSize();
+
+  const fieldLeft = field.left / field.viewScale;
+  const fieldTop = field.top / field.viewScale;
+  const fieldWidth = field.width / field.viewScale;
+  const fieldHeight = field.height / field.viewScale;
+
+  let x = fieldLeft;
+  let y = pageHeight - fieldTop - fieldHeight;
+  let width = fieldWidth;
+  let height = fieldHeight;
+
+  if (field.viewRotation === 90) {
+    x = fieldTop;
+    y = fieldLeft;
+    width = fieldHeight;
+    height = fieldWidth;
+  } else if (field.viewRotation === 180) {
+    x = pageWidth - fieldLeft - fieldWidth;
+    y = fieldTop;
+  } else if (field.viewRotation === 270) {
+    x = pageWidth - fieldTop - fieldHeight;
+    y = pageHeight - fieldLeft - fieldWidth;
+    width = fieldHeight;
+    height = fieldWidth;
+  }
+
+  const fieldName = field.name || field.id;
+
+  if (field.fieldType === "text") {
+  const textField = pdfForm.createTextField(fieldName);
+
+  if (field.value) {
+    textField.setText(field.value);
+  }
+
+  textField.addToPage(outputPage, {
+    x,
+    y,
+    width,
+    height,
+    borderWidth: 1,
+    font: formFont,
+  });
+
+  textField.setFontSize(12);
+  textField.updateAppearances(formFont);
+}
+
+  if (field.fieldType === "multiline") {
+  const textField = pdfForm.createTextField(fieldName);
+
+  textField.enableMultiline();
+
+  if (field.value) {
+    textField.setText(field.value);
+  }
+
+  textField.addToPage(outputPage, {
+    x,
+    y,
+    width,
+    height,
+    borderWidth: 1,
+    font: formFont,
+  });
+
+  textField.setFontSize(12);
+  textField.updateAppearances(formFont);
+}
+
+  if (field.fieldType === "checkbox") {
+    const checkBox = pdfForm.createCheckBox(fieldName);
+
+    checkBox.addToPage(outputPage, {
+      x,
+      y,
+      width,
+      height,
+      borderWidth: 1,
+    });
+
+    if (field.checked) {
+      checkBox.check();
+    }
+  }
+
+  if (field.fieldType === "radio") {
+  let radioGroup;
+
+  if (createdRadioGroups.has(fieldName)) {
+    radioGroup = pdfForm.getRadioGroup(fieldName);
+  } else {
+    radioGroup = pdfForm.createRadioGroup(fieldName);
+    createdRadioGroups.add(fieldName);
+  }
+
+  radioGroup.addOptionToPage(
+    field.value || `Option_${field.id}`,
+    outputPage,
+    {
+      x,
+      y,
+      width,
+      height,
+      borderWidth: 1,
+    }
+  );
+}
+
+  if (field.fieldType === "dropdown") {
+  const dropdown = pdfForm.createDropdown(fieldName);
+
+  const options =
+    field.options && field.options.length > 0
+      ? field.options
+      : ["Option 1", "Option 2"];
+
+  dropdown.addOptions(options);
+
+  if (field.value && options.includes(field.value)) {
+    dropdown.select(field.value);
+  }
+
+  dropdown.addToPage(outputPage, {
+    x,
+    y,
+    width,
+    height,
+    borderWidth: 1,
+    font: formFont,
+  });
+
+  dropdown.setFontSize(12);
+  dropdown.updateAppearances(formFont);
+}
+}
+for (const shape of shapeBoxes) {
+  const outputPage = outputPdf.getPage(
+    shape.pageNumber - 1
+  );
+
+  const {
+    width: pageWidth,
+    height: pageHeight,
+  } = outputPage.getSize();
+
+  const hexToPdfRgb = (hex: string) => {
+  const cleanHex = hex.replace("#", "");
+  const value = parseInt(cleanHex, 16);
+
+  return rgb(
+    ((value >> 16) & 255) / 255,
+    ((value >> 8) & 255) / 255,
+    (value & 255) / 255
+  );
+};
+
+const shapeColor = hexToPdfRgb(shape.strokeColor);
+const shapeFillColor = hexToPdfRgb(shape.fillColor);
+
+  const convertPoint = (
+    pointX: number,
+    pointY: number
+  ) => {
+    const x = pointX / shape.viewScale;
+    const y = pointY / shape.viewScale;
+
+    if (shape.viewRotation === 90) {
+      return {
+        x: y,
+        y: x,
+      };
+    }
+
+    if (shape.viewRotation === 180) {
+      return {
+        x: pageWidth - x,
+        y,
+      };
+    }
+
+    if (shape.viewRotation === 270) {
+      return {
+        x: pageWidth - y,
+        y: pageHeight - x,
+      };
+    }
+
+    return {
+      x,
+      y: pageHeight - y,
+    };
+  };
+
+  if (
+    shape.shapeType === "rectangle" ||
+    shape.shapeType === "circle"
+  ) {
+    const topLeft = convertPoint(
+      shape.left,
+      shape.top
+    );
+
+    const bottomRight = convertPoint(
+      shape.left + shape.width,
+      shape.top + shape.height
+    );
+
+    const x = Math.min(
+      topLeft.x,
+      bottomRight.x
+    );
+
+    const y = Math.min(
+      topLeft.y,
+      bottomRight.y
+    );
+
+    const width = Math.abs(
+      bottomRight.x - topLeft.x
+    );
+
+    const height = Math.abs(
+      bottomRight.y - topLeft.y
+    );
+
+    if (shape.shapeType === "rectangle") {
+      outputPage.drawRectangle({
+        x,
+  y,
+  width,
+  height,
+  color: shapeFillColor,
+  borderColor: shapeColor,
+  borderWidth: shape.strokeWidth,
+  opacity: shape.opacity,
+  borderOpacity: shape.opacity,
+});
+    }
+
+    if (shape.shapeType === "circle") {
+  outputPage.drawEllipse({
+    x: x + width / 2,
+    y: y + height / 2,
+    xScale: width / 2,
+    yScale: height / 2,
+    color: shapeFillColor,
+    borderColor: shapeColor,
+    borderWidth: shape.strokeWidth,
+    opacity: shape.opacity,
+    borderOpacity: shape.opacity,
+  });
+}
+  }
+
+  if (
+    shape.shapeType === "line" ||
+    shape.shapeType === "arrow"
+  ) {
+    const start = convertPoint(
+      shape.startX,
+      shape.startY
+    );
+
+    const end = convertPoint(
+      shape.endX,
+      shape.endY
+    );
+
+    outputPage.drawLine({
+  start,
+  end,
+  thickness: shape.strokeWidth,
+  color: shapeColor,
+  opacity: shape.opacity,
+});
+
+    if (shape.shapeType === "arrow") {
+      const angle = Math.atan2(
+        end.y - start.y,
+        end.x - start.x
+      );
+
+      const arrowLength =
+        10 / shape.viewScale;
+
+      const angle1 =
+        angle + Math.PI * 0.85;
+
+      const angle2 =
+        angle - Math.PI * 0.85;
+
+      const arrowPoint1 = {
+        x:
+          end.x +
+          arrowLength * Math.cos(angle1),
+        y:
+          end.y +
+          arrowLength * Math.sin(angle1),
+      };
+
+      const arrowPoint2 = {
+        x:
+          end.x +
+          arrowLength * Math.cos(angle2),
+        y:
+          end.y +
+          arrowLength * Math.sin(angle2),
+      };
+
+      outputPage.drawLine({
+  start: end,
+  end: arrowPoint1,
+  thickness: shape.strokeWidth,
+  color: shapeColor,
+  opacity: shape.opacity,
+});
+
+      outputPage.drawLine({
+  start: end,
+  end: arrowPoint2,
+  thickness: shape.strokeWidth,
+  color: shapeColor,
+  opacity: shape.opacity,
+});
+    }
+  }
+}
+    /*
+     * SAVE NEW PDF
+     */
+    const pdfBytes =
+      await outputPdf.save();
+
+    const pdfArrayBuffer =
+      pdfBytes.buffer.slice(
+        pdfBytes.byteOffset,
+        pdfBytes.byteOffset +
+          pdfBytes.byteLength
+      ) as ArrayBuffer;
+
+    const blob = new Blob(
+      [pdfArrayBuffer],
+      {
+        type: "application/pdf",
+      }
+    );
+
+    const url =
+      URL.createObjectURL(blob);
+
+    const downloadLink =
+      document.createElement("a");
+
+    downloadLink.href = url;
+
+    const originalName =
+      file.name.replace(
+        /\.pdf$/i,
+        ""
+      );
+
+    downloadLink.download =
+      `${originalName}-edited.pdf`;
+
+    document.body.appendChild(
+      downloadLink
+    );
+
+    downloadLink.click();
+
+    downloadLink.remove();
+
+    setTimeout(() => {
+      URL.revokeObjectURL(url);
+    }, 1000);
+  } catch (err) {
+    console.error(
+      "PDF export error:",
+      err
+    );
+
+    alert(
+      "Unable to apply PDF changes. Please try again."
+    );
+  } finally {
+    setExporting(false);
+  }
+};
+  const zoomIn = () => {
+    setScale((current) => Math.min(current + 0.2, 3));
+  };
+
+  const zoomOut = () => {
+    setScale((current) => Math.max(current - 0.2, 0.5));
+  };
+
+  const rotatePage = () => {
+    setRotation((current) => (current + 90) % 360);
+  };
+
+  const previousPage = () => {
+    setPageNumber((current) => Math.max(1, current - 1));
+  };
+
+  const nextPage = () => {
+    setPageNumber((current) => Math.min(pageCount, current + 1));
+  };
+
+  if (!file) {
+    return (
+      <main className="min-h-screen bg-[#f7f8fc]">
+        <header className="border-b border-slate-200 bg-white">
+          <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
+            <Link
+              href="/"
+              className="flex items-center gap-2 font-semibold text-slate-700"
+            >
+              <ChevronLeft size={19} />
+              Back
+            </Link>
+
+            <span className="text-lg font-bold text-slate-950">
+              PDF Editor
+            </span>
+
+            <div className="w-16" />
+          </div>
+        </header>
+
+        <section className="flex min-h-[calc(100vh-74px)] items-center justify-center px-6 py-16">
+          <div className="w-full max-w-3xl text-center">
+            <FileInput className="mx-auto text-blue-600" size={48} />
+
+            <h1 className="mt-5 text-4xl font-bold text-slate-950">
+              Edit PDF Online - Free PDF Editor
+            </h1>
+
+            <p className="mx-auto mt-4 max-w-xl text-slate-600">
+              Upload a PDF to edit text, add images, signatures, forms and annotations online directly in your browser.
+            </p>
+
+            <div
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={(event) => {
+                event.preventDefault();
+
+                handleFile(event.dataTransfer.files?.[0]);
+              }}
+              className="mt-10 rounded-3xl border-2 border-dashed border-blue-300 bg-white px-8 py-14"
+            >
+              <Upload className="mx-auto text-blue-600" size={40} />
+
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={loading}
+                className="mt-7 rounded-xl bg-blue-600 px-8 py-3.5 font-semibold text-white"
+              >
+                {loading ? "Opening PDF..." : "Choose PDF file"}
+              </button>
+
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="application/pdf"
+                className="hidden"
+                onChange={(event) =>
+                  handleFile(event.target.files?.[0])
+                }
+              />
+            </div>
+
+            {error && (
+              <p className="mt-5 font-medium text-red-600">{error}</p>
+            )}
+          </div>
+        </section>
+
+        <section className="mx-auto w-full max-w-6xl px-6 pb-16 pt-4">
+          <div className="rounded-[32px] border border-slate-200 bg-white px-6 py-10 shadow-sm md:px-10 md:py-12">
+            <div className="mx-auto max-w-3xl text-center">
+              <h2 className="text-3xl font-black tracking-[-0.03em] text-slate-950 md:text-4xl">How to edit a PDF online</h2>
+              <p className="mt-4 text-base leading-7 text-slate-600">Open a PDF in Toolijo, edit text and other page elements directly in your browser, review each page, then apply your changes and download the edited PDF.</p>
+            </div>
+
+            <div className="mt-10 grid gap-5 md:grid-cols-2 lg:grid-cols-3">
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                <h3 className="font-black text-slate-950">1. Upload your PDF</h3>
+                <p className="mt-2 text-sm leading-6 text-slate-600">Choose a PDF file or drag and drop it into the editor. Toolijo opens the document so you can work page by page.</p>
+              </div>
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                <h3 className="font-black text-slate-950">2. Edit existing PDF text</h3>
+                <p className="mt-2 text-sm leading-6 text-slate-600">Click existing text to edit it inline. Use the text toolbar to change bold, italic, font size, font family and color, create a link, move text, duplicate it or delete it.</p>
+              </div>
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                <h3 className="font-black text-slate-950">3. Add text, images or a signature</h3>
+                <p className="mt-2 text-sm leading-6 text-slate-600">Use Text to add new text, Images to place a PNG or JPG, or Sign to create a signature by typing, drawing, uploading an image or using your camera.</p>
+              </div>
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                <h3 className="font-black text-slate-950">4. Add links, forms and shapes</h3>
+                <p className="mt-2 text-sm leading-6 text-slate-600">Add links to a URL, email address, phone number or another PDF page. You can also create text fields, multiline fields, checkboxes, radio buttons, drop-down lists, rectangles, circles, lines and arrows.</p>
+              </div>
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                <h3 className="font-black text-slate-950">5. Mark up and manage pages</h3>
+                <p className="mt-2 text-sm leading-6 text-slate-600">Use Whiteout and Annotate for page markup. Navigate between pages, zoom in or out, rotate a page, insert a new page or delete a page when needed.</p>
+              </div>
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                <h3 className="font-black text-slate-950">6. Apply changes and download</h3>
+                <p className="mt-2 text-sm leading-6 text-slate-600">Review the document and click Apply changes when you are finished. Toolijo creates the edited PDF for you to download.</p>
+              </div>
+            </div>
+
+            <div className="mt-12">
+              <h2 className="text-2xl font-black tracking-[-0.02em] text-slate-950 md:text-3xl">PDF editing features in Toolijo</h2>
+              <div className="mt-6 grid gap-5 md:grid-cols-2">
+                <div className="rounded-2xl border border-slate-200 p-5">
+                  <h3 className="font-black text-slate-950">Text and typography controls</h3>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">Edit text directly on the PDF and control font family, size, bold, italic and text color. Selected text can also be moved, duplicated, deleted or turned into a link.</p>
+                </div>
+                <div className="rounded-2xl border border-slate-200 p-5">
+                  <h3 className="font-black text-slate-950">Images and signatures</h3>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">Add PNG or JPG images to a page and reposition them. Signatures can be typed, drawn, uploaded as an image or captured with your device camera.</p>
+                </div>
+                <div className="rounded-2xl border border-slate-200 p-5">
+                  <h3 className="font-black text-slate-950">Forms, links and shapes</h3>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">Create common PDF form fields, add interactive links and place configurable shapes such as rectangles, circles, lines and arrows.</p>
+                </div>
+                <div className="rounded-2xl border border-slate-200 p-5">
+                  <h3 className="font-black text-slate-950">Page and markup controls</h3>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">Use zoom and rotation while editing, move through multi-page documents, insert or delete pages, add annotations and cover unwanted page areas with Whiteout.</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-10 grid gap-5 md:grid-cols-2">
+              <div className="rounded-2xl border border-blue-200 bg-blue-50 p-5">
+                <h2 className="text-lg font-black text-slate-950">Browser-based PDF editing</h2>
+                <p className="mt-2 text-sm leading-6 text-slate-700">The editor reads and processes your PDF in your browser instead of sending it to a PDF conversion API. Added images are also read locally in the browser before they are embedded into the edited PDF.</p>
+              </div>
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
+                <h2 className="text-lg font-black text-slate-950">A note about scanned PDFs</h2>
+                <p className="mt-2 text-sm leading-6 text-slate-700">Direct editing of existing text works best with text-based PDFs. Toolijo does not currently run OCR on scanned image-only pages, so text inside a scan may not be available for inline editing.</p>
+              </div>
+            </div>
+
+            <div className="mt-10 rounded-2xl border border-slate-200 bg-slate-50 p-6">
+              <h2 className="text-xl font-black text-slate-950">Tips for better PDF editing</h2>
+              <ul className="mt-4 space-y-2 text-sm leading-6 text-slate-600">
+                <li>Use a text-based PDF when you want to edit existing words or numbers directly.</li>
+                <li>Zoom in for precise text, image, annotation, form or shape placement.</li>
+                <li>Check every edited page before applying changes and downloading the final PDF.</li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+      </main>
+    );
+  }
+
+  return (
+    <main className="flex min-h-screen w-full max-w-full flex-col overflow-x-clip bg-[#e9e9e9] md:overflow-x-visible">
+    <input
+  ref={imageInputRef}
+  type="file"
+  accept="image/png,image/jpeg"
+  className="hidden"
+  onChange={(event) => {
+  handleImageFile(event.target.files?.[0], true);
+  event.target.value = "";
+}}
+/>
+{showSignDialog && (
+  <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/40 px-3 py-3 md:z-[100]">
+    <div
+      className="w-[320px] max-w-[calc(100vw-24px)] max-h-[calc(100dvh-24px)] overflow-y-auto rounded-xl bg-white p-3 shadow-2xl md:w-[420px] md:max-w-[90vw] md:max-h-none md:overflow-visible md:p-6"
+      onMouseDown={(event) => event.stopPropagation()}
+    >
+      <h2 className="text-lg font-semibold text-slate-900 md:text-xl">
+        Add Signature
+      </h2>
+
+      <p className="mt-1 text-sm text-slate-500">
+        Draw your signature or upload an image.
+      </p>
+<div className="mt-3 flex border-b border-slate-200 md:mt-5">
+  <button
+    onClick={() => setSignDialogMode("type")}
+    className={`px-2 py-2 text-xs font-medium md:px-4 md:py-3 md:text-sm ${
+      signDialogMode === "type"
+        ? "border-b-2 border-blue-600 text-blue-600"
+        : "text-slate-600 hover:text-blue-600"
+    }`}
+  >
+    Type
+  </button>
+
+  <button
+    onClick={() => setSignDialogMode("draw")}
+    className={`px-2 py-2 text-xs font-medium md:px-4 md:py-3 md:text-sm ${
+      signDialogMode === "draw"
+        ? "border-b-2 border-blue-600 text-blue-600"
+        : "text-slate-600 hover:text-blue-600"
+    }`}
+  >
+    Draw
+  </button>
+
+  <button
+    onClick={() => setSignDialogMode("upload")}
+    className={`px-2 py-2 text-xs font-medium md:px-4 md:py-3 md:text-sm ${
+      signDialogMode === "upload"
+        ? "border-b-2 border-blue-600 text-blue-600"
+        : "text-slate-600 hover:text-blue-600"
+    }`}
+  >
+    Upload Image
+  </button>
+
+  <button
+    onClick={() => setSignDialogMode("camera")}
+    className={`px-2 py-2 text-xs font-medium md:px-4 md:py-3 md:text-sm ${
+      signDialogMode === "camera"
+        ? "border-b-2 border-blue-600 text-blue-600"
+        : "text-slate-600 hover:text-blue-600"
+    }`}
+  >
+    Camera
+  </button>
+</div>
+      {signDialogMode === "type" && (
+  <div className="mt-5">
+    <input
+      type="text"
+      value={typedSignature}
+      onChange={(event) =>
+        setTypedSignature(event.target.value)
+      }
+      placeholder="Type your name"
+      className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-base text-slate-900 placeholder:text-slate-400 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 md:px-4 md:py-3" style={{ color: "#0f172a", WebkitTextFillColor: "#0f172a" }}
+    />
+
+    <div className="mt-3 grid grid-cols-2 gap-2 md:mt-5 md:gap-3">
+      {[
+        {
+          fontFamily: "cursive",
+          fontStyle: "normal",
+          fontWeight: 400,
+        },
+        {
+          fontFamily: "Georgia, serif",
+          fontStyle: "italic",
+          fontWeight: 400,
+        },
+        {
+          fontFamily: "cursive",
+          fontStyle: "italic",
+          fontWeight: 700,
+        },
+        {
+          fontFamily: "'Times New Roman', serif",
+          fontStyle: "italic",
+          fontWeight: 400,
+        },
+        {
+  fontFamily: '"Brush Script MT", cursive',
+  fontStyle: "italic",
+  fontWeight: 400,
+},
+{
+  fontFamily: '"Segoe Script", "Lucida Handwriting", cursive',
+  fontStyle: "normal",
+  fontWeight: 600,
+},
+{
+  fontFamily: '"Brush Script MT", "Segoe Script", cursive',
+  fontStyle: "italic",
+  fontWeight: 700,
+},
+{
+  fontFamily: '"Lucida Handwriting", "Segoe Script", cursive',
+  fontStyle: "normal",
+  fontWeight: 400,
+},
+      ].map((signatureStyle, index) => (
+        <button
+          key={index}
+          onClick={() => setTypedSignatureStyle(index)}
+          className={`flex min-h-14 items-center justify-center rounded-lg border px-2 py-2 md:min-h-20 md:px-3 md:py-3 ${
+            typedSignatureStyle === index
+              ? "border-blue-500 bg-blue-50"
+              : "border-slate-200 hover:border-blue-300"
+          }`}
+        >
+          <span
+            className="text-xl text-slate-800 md:text-2xl"
+            style={{
+              fontFamily: signatureStyle.fontFamily,
+              fontStyle: signatureStyle.fontStyle,
+              fontWeight: signatureStyle.fontWeight,
+            }}
+          >
+            {typedSignature || "Your Name"}
+          </span>
+        </button>
+      ))}
+    </div>
+    <div className="mt-5 flex justify-center">
+  <button
+    onClick={useTypedSignature}
+    disabled={!typedSignature.trim()}
+    className={`rounded-lg px-6 py-2.5 text-sm font-semibold text-white ${
+      typedSignature.trim()
+        ? "bg-blue-600 hover:bg-blue-700"
+        : "cursor-not-allowed bg-slate-300"
+    }`}
+  >
+    Use Signature
+  </button>
+</div>
+  </div>
+)}
+
+{signDialogMode === "draw" && (
+  <div className="mt-5">
+    <canvas
+      ref={signatureCanvasRef}
+      width={360}
+      height={160}
+      onPointerDown={startSignatureDrawing}
+onPointerMove={drawSignature}
+onPointerUp={stopSignatureDrawing}
+      className="w-full touch-none rounded-lg border border-slate-300 bg-white"
+    />
+
+    <div className="mt-3 flex justify-between">
+      <button
+        onClick={() => setSignDialogMode("type")}
+        className="rounded-lg px-3 py-2 text-sm text-slate-600 hover:bg-slate-100"
+      >
+        Back
+      </button>
+
+      <button
+      onClick={useDrawnSignature}
+        className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white"
+      >
+        Use Signature
+      </button>
+    </div>
+  </div>
+)}
+{signDialogMode === "upload" && (
+  <div className="mt-5">
+    <button
+      onClick={() => signatureImageInputRef.current?.click()}
+      className="w-full rounded-lg border-2 border-dashed border-slate-300 px-5 py-8 text-center hover:border-blue-400 hover:bg-blue-50"
+    >
+      <ImageIcon className="mx-auto mb-2 text-blue-600" size={28} />
+
+      <div className="font-medium text-slate-800">
+        Choose Signature Image
+      </div>
+
+      <div className="mt-1 text-sm text-slate-500">
+        PNG or JPG
+      </div>
+    </button>
+
+    <input
+      ref={signatureImageInputRef}
+      type="file"
+      accept="image/png,image/jpeg"
+      className="hidden"
+      onChange={(event) => {
+        handleSignatureImageFile(event.target.files?.[0]);
+        event.target.value = "";
+      }}
+    />
+  </div>
+)}
+{signDialogMode === "camera" && (
+  <div className="mt-5">
+    <video
+      ref={signatureCameraVideoRef}
+      autoPlay
+      playsInline
+      muted
+      className="w-full rounded-lg border border-slate-300 bg-black"
+    />
+
+    <div className="mt-3 flex justify-center gap-3">
+      <button
+        onClick={startSignatureCamera}
+        className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+      >
+        Start Camera
+      </button>
+
+      <button
+        onClick={stopSignatureCamera}
+        className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
+      >
+        Stop Camera
+      </button>
+      <button
+  onClick={captureSignatureCamera}
+  className="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700"
+>
+  Capture Photo
+</button>
+    </div>
+    
+  </div>
+)}
+      <div className="mt-5 flex justify-end">
+        <button
+          onClick={() => {
+  setShowSignDialog(false);
+  setSignDialogMode("type");
+}}
+          className="rounded-lg px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  </div>
+)}
+{showShapeProperties && selectedShape && (
+  <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/30">
+    <div
+      className="w-[400px] rounded-xl bg-white p-5 shadow-2xl"
+      onClick={(event) => event.stopPropagation()}
+    >
+      <div className="mb-5 flex items-center justify-between">
+        <div>
+          <h3 className="text-lg font-semibold text-slate-900">
+            Shape Properties
+          </h3>
+          <p className="text-xs capitalize text-slate-500">
+            {selectedShape.shapeType}
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={closeShapeProperties}
+          className="rounded-md px-2 py-1 text-xl text-slate-500 hover:bg-slate-100"
+        >
+          ×
+        </button>
+      </div>
+
+      <div className="space-y-4">
+        <div>
+          <label className="mb-1 block text-sm font-medium text-slate-700">
+            Line color
+          </label>
+
+          <div className="flex items-center gap-3">
+            <input
+              type="color"
+              value={selectedShape.strokeColor}
+              onChange={(event) =>
+                updateSelectedShape({
+                  strokeColor: event.target.value,
+                })
+              }
+              className="h-10 w-14 cursor-pointer rounded border border-slate-300"
+            />
+
+            <span className="text-sm text-slate-600">
+              {selectedShape.strokeColor}
+            </span>
+          </div>
+        </div>
+
+        {selectedShape.shapeType !== "line" &&
+          selectedShape.shapeType !== "arrow" && (
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700">
+                Fill color
+              </label>
+
+              <div className="flex items-center gap-3">
+                <input
+                  type="color"
+                  value={selectedShape.fillColor}
+                  onChange={(event) =>
+                    updateSelectedShape({
+                      fillColor: event.target.value,
+                    })
+                  }
+                  className="h-10 w-14 cursor-pointer rounded border border-slate-300"
+                />
+
+                <span className="text-sm text-slate-600">
+                  {selectedShape.fillColor}
+                </span>
+              </div>
+            </div>
+          )}
+
+        <div>
+          <label className="mb-1 block text-sm font-medium text-slate-700">
+            Line thickness
+          </label>
+
+          <select
+            value={selectedShape.strokeWidth}
+            onChange={(event) =>
+              updateSelectedShape({
+                strokeWidth: Number(event.target.value),
+              })
+            }
+            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+          >
+            <option value={1}>1 px</option>
+            <option value={2}>2 px</option>
+            <option value={3}>3 px</option>
+            <option value={4}>4 px</option>
+            <option value={5}>5 px</option>
+            <option value={6}>6 px</option>
+            <option value={8}>8 px</option>
+            <option value={10}>10 px</option>
+          </select>
+        </div>
+
+        <div>
+          <div className="mb-1 flex items-center justify-between">
+            <label className="text-sm font-medium text-slate-700">
+              Opacity
+            </label>
+
+            <span className="text-sm text-slate-500">
+              {Math.round(selectedShape.opacity * 100)}%
+            </span>
+          </div>
+
+          <input
+            type="range"
+            min="0.1"
+            max="1"
+            step="0.1"
+            value={selectedShape.opacity}
+            onChange={(event) =>
+              updateSelectedShape({
+                opacity: Number(event.target.value),
+              })
+            }
+            className="w-full"
+          />
+        </div>
+      </div>
+
+      <div className="mt-6 flex items-center justify-between border-t border-slate-200 pt-4">
+        <button
+          type="button"
+          onClick={() => {
+            deleteSelectedShape();
+            setShowShapeProperties(false);
+          }}
+          className="rounded-md bg-red-50 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-100"
+        >
+          Delete shape
+        </button>
+
+        <button
+          type="button"
+          onClick={closeShapeProperties}
+          className="rounded-md bg-blue-600 px-5 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+        >
+          Done
+        </button>
+      </div>
+    </div>
+  </div>
+)}
+{showFormProperties && selectedFormField && (
+  <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/30">
+    <div
+      className="w-[420px] rounded-xl bg-white p-5 shadow-2xl"
+      onClick={(event) => event.stopPropagation()}
+    >
+      <div className="mb-5 flex items-center justify-between">
+        <div>
+          <h3 className="text-lg font-semibold text-slate-900">
+            Form Properties
+          </h3>
+          <p className="text-xs text-slate-500">
+            {selectedFormField.fieldType}
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={closeFormProperties}
+          className="rounded-md px-2 py-1 text-xl text-slate-500 hover:bg-slate-100"
+        >
+          ×
+        </button>
+      </div>
+
+      <div className="space-y-4">
+        <div>
+          <label className="mb-1 block text-sm font-medium text-slate-700">
+            Field name
+          </label>
+
+          <input
+            type="text"
+            value={selectedFormField.name}
+            onChange={(event) =>
+              updateSelectedFormField({
+                name: event.target.value,
+              })
+            }
+            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+          />
+        </div>
+
+        {(selectedFormField.fieldType === "text" ||
+          selectedFormField.fieldType === "multiline") && (
+          <div>
+            <label className="mb-1 block text-sm font-medium text-slate-700">
+              Default value
+            </label>
+
+            {selectedFormField.fieldType === "multiline" ? (
+              <textarea
+                value={selectedFormField.value}
+                onChange={(event) =>
+                  updateSelectedFormField({
+                    value: event.target.value,
+                  })
+                }
+                rows={4}
+                className="w-full resize-none rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+              />
+            ) : (
+              <input
+                type="text"
+                value={selectedFormField.value}
+                onChange={(event) =>
+                  updateSelectedFormField({
+                    value: event.target.value,
+                  })
+                }
+                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+              />
+            )}
+          </div>
+        )}
+
+        {selectedFormField.fieldType === "checkbox" && (
+          <label className="flex items-center gap-3 rounded-md border border-slate-200 p-3">
+            <input
+              type="checkbox"
+              checked={selectedFormField.checked ?? false}
+              onChange={(event) =>
+                updateSelectedFormField({
+                  checked: event.target.checked,
+                })
+              }
+            />
+
+            <span className="text-sm text-slate-700">
+              Checked by default
+            </span>
+          </label>
+        )}
+
+        {selectedFormField.fieldType === "radio" && (
+          <div>
+            <label className="mb-1 block text-sm font-medium text-slate-700">
+              Radio option value
+            </label>
+
+            <input
+              type="text"
+              value={selectedFormField.value}
+              placeholder="Option 1"
+              onChange={(event) =>
+                updateSelectedFormField({
+                  value: event.target.value,
+                })
+              }
+              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+            />
+            <label className="mt-3 flex items-center gap-3 rounded-md border border-slate-200 p-3">
+  <input
+    type="checkbox"
+    checked={selectedFormField.checked ?? false}
+    onChange={(event) =>
+      updateSelectedFormField({
+        checked: event.target.checked,
+      })
+    }
+  />
+
+  <span className="text-sm text-slate-700">
+    Checked by default
+  </span>
+</label>
+
+            <p className="mt-1 text-xs text-slate-500">
+              Radio buttons with the same field name will belong to the same group.
+            </p>
+          </div>
+        )}
+
+        {selectedFormField.fieldType === "dropdown" && (
+          <div>
+            <label className="mb-1 block text-sm font-medium text-slate-700">
+              Dropdown options
+            </label>
+
+            <textarea
+              value={(selectedFormField.options ?? []).join("\n")}
+              onChange={(event) =>
+                updateSelectedFormField({
+                  options: event.target.value.split("\n"),
+                })
+              }
+              rows={5}
+              placeholder={"Option 1\nOption 2\nOption 3"}
+              className="w-full resize-none rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+            />
+
+            <p className="mt-1 text-xs text-slate-500">
+              Enter one option per line.
+            </p>
+          </div>
+        )}
+      </div>
+
+      <div className="mt-6 flex items-center justify-between border-t border-slate-200 pt-4">
+        <button
+          type="button"
+          onClick={() => {
+            deleteSelectedFormField();
+            setShowFormProperties(false);
+          }}
+          className="rounded-md bg-red-50 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-100"
+        >
+          Delete field
+        </button>
+
+        <button
+          type="button"
+          onClick={closeFormProperties}
+          className="rounded-md bg-blue-600 px-5 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+        >
+          Done
+        </button>
+      </div>
+    </div>
+  </div>
+)}
+{showLinkProperties && selectedLinkBox && (
+  <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/30">
+    <div className="w-[430px] max-w-[92vw] rounded-xl bg-white p-6 shadow-2xl">
+      <div className="mb-5 flex items-center justify-between">
+        <h2 className="text-xl font-semibold text-slate-900">
+          Link properties
+        </h2>
+
+        <button
+          onClick={closeLinkProperties}
+          className="text-2xl leading-none text-slate-400 hover:text-slate-700"
+        >
+          ×
+        </button>
+      </div>
+
+      <div className="space-y-4">
+        <label className="block">
+          <div className="mb-2 flex items-center gap-2">
+            <input
+              type="radio"
+              name="linkTarget"
+              checked={linkTargetType === "url"}
+              onChange={() => setLinkTargetType("url")}
+            />
+            <span className="text-sm font-medium text-slate-700">
+              Link to external URL
+            </span>
+          </div>
+
+          <input
+            type="text"
+            disabled={linkTargetType !== "url"}
+            value={linkTargetType === "url" ? linkTargetValue : ""}
+            onChange={(event) => setLinkTargetValue(event.target.value)}
+            placeholder="https://example.com"
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 outline-none disabled:bg-slate-50 disabled:text-slate-400 focus:border-blue-500"
+          />
+        </label>
+
+        <label className="block">
+          <div className="mb-2 flex items-center gap-2">
+            <input
+              type="radio"
+              name="linkTarget"
+              checked={linkTargetType === "email"}
+              onChange={() => {
+                setLinkTargetType("email");
+                setLinkTargetValue("");
+              }}
+            />
+            <span className="text-sm font-medium text-slate-700">
+              Link to email address
+            </span>
+          </div>
+
+          <input
+            type="email"
+            disabled={linkTargetType !== "email"}
+            value={linkTargetType === "email" ? linkTargetValue : ""}
+            onChange={(event) => setLinkTargetValue(event.target.value)}
+            placeholder="you@example.com"
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 outline-none disabled:bg-slate-50 disabled:text-slate-400 focus:border-blue-500"
+          />
+        </label>
+
+        <label className="block">
+          <div className="mb-2 flex items-center gap-2">
+            <input
+              type="radio"
+              name="linkTarget"
+              checked={linkTargetType === "phone"}
+              onChange={() => {
+                setLinkTargetType("phone");
+                setLinkTargetValue("");
+              }}
+            />
+            <span className="text-sm font-medium text-slate-700">
+              Link to phone number
+            </span>
+          </div>
+
+          <input
+            type="text"
+            disabled={linkTargetType !== "phone"}
+            value={linkTargetType === "phone" ? linkTargetValue : ""}
+            onChange={(event) => setLinkTargetValue(event.target.value)}
+            placeholder="+1234567890"
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 outline-none disabled:bg-slate-50 disabled:text-slate-400 focus:border-blue-500"
+          />
+        </label>
+
+        <label className="block">
+          <div className="mb-2 flex items-center gap-2">
+            <input
+              type="radio"
+              name="linkTarget"
+              checked={linkTargetType === "page"}
+              onChange={() => {
+                setLinkTargetType("page");
+                setLinkTargetValue("");
+              }}
+            />
+            <span className="text-sm font-medium text-slate-700">
+              Link to internal page
+            </span>
+          </div>
+
+          <input
+            type="number"
+            min={1}
+            max={pageCount}
+            disabled={linkTargetType !== "page"}
+            value={linkTargetType === "page" ? linkTargetValue : ""}
+            onChange={(event) => setLinkTargetValue(event.target.value)}
+            placeholder={`1 - ${pageCount}`}
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 outline-none disabled:bg-slate-50 disabled:text-slate-400 focus:border-blue-500"
+          />
+        </label>
+      </div>
+
+      <div className="mt-6 flex items-center justify-between border-t border-slate-200 pt-4">
+        <button
+          onClick={deleteSelectedLinkBox}
+          className="text-sm font-medium text-red-600 hover:text-red-700"
+        >
+          Delete link
+        </button>
+
+        <div className="flex gap-2">
+          <button
+            onClick={closeLinkProperties}
+            className="rounded-lg px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100"
+          >
+            Close
+          </button>
+
+          <button
+            onClick={saveLinkProperties}
+            disabled={!linkTargetValue.trim()}
+            className="rounded-lg bg-blue-600 px-5 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+          >
+            Apply
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+)}
+      <header className="border-b border-slate-200 bg-white">
+        <div className="flex min-h-16 w-full max-w-full items-center justify-between gap-2 px-2 md:gap-4 md:px-4">
+          <div className="flex min-w-0 flex-1 items-center gap-2 md:gap-3">
+            <Link href="/" className="rounded-lg p-2 text-slate-600">
+              <ChevronLeft size={20} />
+            </Link>
+
+            <div className="min-w-0 flex-1"><p className="max-w-full truncate text-sm font-semibold md:max-w-64">
+                {file.name}
+              </p>
+
+              <p className="text-xs text-slate-500">
+                {(file.size / 1024 / 1024).toFixed(2)} MB
+              </p>
+            </div>
+          </div>
+
+          <button
+  onClick={applyChanges}
+  disabled={exporting}
+  className={`flex shrink-0 items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-2.5 text-xs font-semibold text-white transition hover:bg-blue-700 md:gap-2 md:px-5 md:text-sm ${
+    exporting
+      ? "cursor-not-allowed opacity-60"
+      : ""
+  }`}
+>
+  <Download size={17} />
+
+  {exporting
+    ? "Applying..."
+    : "Apply changes"}
+</button>
+        </div>
+      </header>
+
+      <div className={`sticky top-0 z-[150] w-full max-w-full md:z-[80] border-b bg-white px-2 py-1 md:px-3 md:py-2 md:overflow-visible ${showFormsMenu ? "overflow-visible" : "overflow-x-auto overscroll-x-contain"}`}> 
+        <div className="mx-auto flex w-max min-w-full items-center justify-start gap-1 md:max-w-[1500px] md:justify-center">
+          {tools.map((tool) => {
+            const Icon = tool.icon;
+
+            return (
+            <div key={tool.label} className="relative">  
+              <button
+              onPointerDown={(event) => {
+                if (tool.label === "Forms" && typeof window !== "undefined" && window.innerWidth < 768) {
+                  event.preventDefault();
+                  event.stopPropagation();
+
+                  setShowShapesMenu(false);
+                  setShowFormsMenu((current) => !current);
+                  setAddTextMode(false);
+                  setWhiteoutMode(false);
+                  setAnnotateMode(false);
+                  setLinkAreaMode(false);
+                  setSelectedTextId(null);
+                  setSelectedImageId(null);
+                  setSelectedWhiteoutId(null);
+                  setSelectedAnnotateId(null);
+                  setSelectedLinkBoxId(null);
+                }
+
+                if (tool.label === "Shapes" && typeof window !== "undefined" && window.innerWidth < 768) {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setShowFormsMenu(false);
+                  setShowShapesMenu((current) => !current);
+                  setAddTextMode(false);
+                  setWhiteoutMode(false);
+                  setAnnotateMode(false);
+                  setLinkAreaMode(false);
+                  setFormFieldMode(null);
+                }
+              }}
+
+                onClick={() => {
+  if ((tool.label === "Forms" || tool.label === "Shapes") && typeof window !== "undefined" && window.innerWidth < 768) return;
+  if (tool.label === "Text") {
+    setAddTextMode((current) => !current);
+    setWhiteoutMode(false);
+setAnnotateMode(false);
+    setSelectedTextId(null);
+    setMoveMode(false);
+  }
+  // All tools target the currently visible page; no pre-activation click required.
+  if (pdfDoc) activatePageWithoutJump(getVisiblePageForPlacement());
+  if (tool.label === "Images") {
+    imageInputRef.current?.click();
+  } else if (tool.label === "Sign") {
+    setShowSignDialog(true);
+  }
+if (tool.label === "Whiteout") {
+  setWhiteoutMode((current) => !current);
+  setAnnotateMode(false);
+  setAddTextMode(false);
+  setSelectedTextId(null);
+  setSelectedImageId(null);
+  setMoveMode(false);
+}
+if (tool.label === "Annotate") {
+  setAnnotateMode((current) => !current);
+  setWhiteoutMode(false);
+  setAddTextMode(false);
+  setSelectedTextId(null);
+  setSelectedImageId(null);
+  setSelectedWhiteoutId(null);
+  setMoveMode(false);
+}
+if (tool.label === "Links") {
+  setLinkAreaMode((current) => !current);
+  setAnnotateMode(false);
+  setWhiteoutMode(false);
+  setAddTextMode(false);
+  setSelectedTextId(null);
+  setSelectedImageId(null);
+  setSelectedWhiteoutId(null);
+  setSelectedAnnotateId(null);
+}
+if (tool.label === "Forms") {
+  setShowShapesMenu(false);
+  setShowFormsMenu((current) => !current);
+
+  setAddTextMode(false);
+  setWhiteoutMode(false);
+  setAnnotateMode(false);
+  setLinkAreaMode(false);
+
+  setSelectedTextId(null);
+  setSelectedImageId(null);
+  setSelectedWhiteoutId(null);
+  setSelectedAnnotateId(null);
+  setSelectedLinkBoxId(null);
+}
+if (tool.label === "Shapes") {
+  setShowShapesMenu((current) => !current);
+
+  setAddTextMode(false);
+  setWhiteoutMode(false);
+  setAnnotateMode(false);
+  setLinkAreaMode(false);
+  setFormFieldMode(null);
+
+  setSelectedTextId(null);
+  setSelectedImageId(null);
+  setSelectedWhiteoutId(null);
+  setSelectedAnnotateId(null);
+  setSelectedLinkBoxId(null);
+  setSelectedFormFieldId(null);
+}
+}}
+
+                disabled={!tool.enabled}
+                className={`flex items-center gap-1 whitespace-nowrap rounded-md px-2 py-1 text-[10px] md:gap-2 md:px-3 md:py-2 md:text-sm ${
+                  tool.enabled
+  ? (tool.label === "Text" && addTextMode) ||
+(tool.label === "Whiteout" && whiteoutMode) ||
+(tool.label === "Annotate" && annotateMode) ||
+(tool.label === "Links" && linkAreaMode) ||
+(tool.label === "Forms" && formFieldMode !== null) ||
+(tool.label === "Shapes" && shapeMode !== null)
+    ? "bg-blue-600 text-white"
+    : "bg-blue-50 text-blue-700"
+  : "text-slate-400"
+                }`}
+              >
+                <Icon size={17} className="h-3 w-3 md:h-[17px] md:w-[17px]" />
+                {tool.label}
+              </button>
+              {tool.label === "Forms" && showFormsMenu && (
+  <div className="fixed left-3 right-3 top-[118px] z-[100] max-h-[60vh] overflow-y-auto rounded-lg border border-slate-200 bg-white p-2 shadow-xl md:absolute md:left-0 md:right-auto md:top-full md:mt-2 md:w-64 md:max-h-none md:overflow-visible">
+    <div className="px-3 py-2 text-xs font-semibold uppercase text-slate-400">
+      Add new form fields
+    </div>
+
+    <button
+      onClick={() => {
+        setFormFieldMode("text");
+        setShowFormsMenu(false);
+      }}
+      className="w-full rounded-md px-3 py-2 text-left text-sm text-slate-700 hover:bg-blue-50 hover:text-blue-700"
+    >
+      Text field
+    </button>
+
+    <button
+      onClick={() => {
+        setFormFieldMode("multiline");
+        setShowFormsMenu(false);
+      }}
+      className="w-full rounded-md px-3 py-2 text-left text-sm text-slate-700 hover:bg-blue-50 hover:text-blue-700"
+    >
+      Text multiline
+    </button>
+
+    <button
+      onClick={() => {
+        setFormFieldMode("checkbox");
+        setShowFormsMenu(false);
+      }}
+      className="w-full rounded-md px-3 py-2 text-left text-sm text-slate-700 hover:bg-blue-50 hover:text-blue-700"
+    >
+      Checkbox
+    </button>
+
+    <button
+      onClick={() => {
+        setFormFieldMode("radio");
+        setShowFormsMenu(false);
+      }}
+      className="w-full rounded-md px-3 py-2 text-left text-sm text-slate-700 hover:bg-blue-50 hover:text-blue-700"
+    >
+      Radio button
+    </button>
+
+    <button
+      onClick={() => {
+        setFormFieldMode("dropdown");
+        setShowFormsMenu(false);
+      }}
+      className="w-full rounded-md px-3 py-2 text-left text-sm text-slate-700 hover:bg-blue-50 hover:text-blue-700"
+    >
+      Drop-down list
+    </button>
+  </div>
+)}
+{tool.label === "Shapes" && showShapesMenu && (
+  <div className="hidden md:absolute md:left-0 md:top-full md:z-[100] md:mt-2 md:block md:w-56 md:rounded-lg md:border md:border-slate-200 md:bg-white md:p-2 md:shadow-xl">
+    <div className="px-3 py-2 text-xs font-semibold uppercase text-slate-400">
+      Add shape
+    </div>
+
+    <button
+      onClick={() => {
+        setShapeMode("rectangle");
+        setShowShapesMenu(false);
+      }}
+      className="w-full rounded-md px-3 py-2 text-left text-sm text-slate-700 hover:bg-blue-50 hover:text-blue-700"
+    >
+      Rectangle
+    </button>
+
+    <button
+      onClick={() => {
+        setShapeMode("circle");
+        setShowShapesMenu(false);
+      }}
+      className="w-full rounded-md px-3 py-2 text-left text-sm text-slate-700 hover:bg-blue-50 hover:text-blue-700"
+    >
+      Circle
+    </button>
+
+    <button
+      onClick={() => {
+        setShapeMode("line");
+        setShowShapesMenu(false);
+      }}
+      className="w-full rounded-md px-3 py-2 text-left text-sm text-slate-700 hover:bg-blue-50 hover:text-blue-700"
+    >
+      Line
+    </button>
+
+    <button
+      onClick={() => {
+        setShapeMode("arrow");
+        setShowShapesMenu(false);
+      }}
+      className="w-full rounded-md px-3 py-2 text-left text-sm text-slate-700 hover:bg-blue-50 hover:text-blue-700"
+    >
+      Arrow
+    </button>
+  </div>
+)}
+              </div>
+            );
+          })}
+
+          <div className="mx-1 h-7 w-px bg-slate-300" />
+
+          <Undo2 size={18} className="text-blue-600" />
+          <Redo2 size={18} className="text-blue-600" />
+        </div>
+      </div>
+
+      {showShapesMenu && (
+        <div className="fixed left-3 right-3 top-[118px] z-[300] max-h-[60vh] overflow-y-auto rounded-lg border border-slate-200 bg-white p-2 shadow-xl md:hidden">
+          <div className="px-3 py-2 text-xs font-semibold uppercase text-slate-400">Add shape</div>
+          <button onClick={() => { setShapeMode("rectangle"); setShowShapesMenu(false); }} className="w-full rounded-md px-3 py-2 text-left text-sm text-slate-700">Rectangle</button>
+          <button onClick={() => { setShapeMode("circle"); setShowShapesMenu(false); }} className="w-full rounded-md px-3 py-2 text-left text-sm text-slate-700">Circle</button>
+          <button onClick={() => { setShapeMode("line"); setShowShapesMenu(false); }} className="w-full rounded-md px-3 py-2 text-left text-sm text-slate-700">Line</button>
+          <button onClick={() => { setShapeMode("arrow"); setShowShapesMenu(false); }} className="w-full rounded-md px-3 py-2 text-left text-sm text-slate-700">Arrow</button>
+        </div>
+      )}
+
+      <div className="border-b border-slate-300 bg-[#ededed] px-2 py-2 md:px-4 md:py-3">
+        <div className="flex w-full flex-wrap items-center justify-center gap-1.5 md:flex-nowrap md:gap-2">
+          <button
+            onClick={previousPage}
+            disabled={pageNumber <= 1}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-blue-400 bg-white p-0 text-slate-700 md:h-auto md:w-auto md:rounded md:p-2"
+          >
+            <ChevronLeft size={17} />
+          </button>
+
+          <span className="shrink-0 px-2 text-xs font-semibold md:px-4 md:text-sm">
+            Page {pageNumber} / {pageCount}
+          </span>
+
+          <button
+            onClick={nextPage}
+            disabled={pageNumber >= pageCount}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-blue-400 bg-white p-0 text-slate-700 md:h-auto md:w-auto md:rounded md:p-2"
+          >
+            <ChevronRight size={17} />
+          </button>
+
+          <button
+            onClick={zoomIn}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-blue-400 bg-white p-0 text-slate-700 md:h-auto md:w-auto md:rounded md:p-2"
+          >
+            <ZoomIn size={16} />
+          </button>
+
+          <button
+            onClick={zoomOut}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-blue-400 bg-white p-0 text-slate-700 md:h-auto md:w-auto md:rounded md:p-2"
+          >
+            <ZoomOut size={16} />
+          </button>
+
+          <button
+            onClick={rotatePage}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-blue-400 bg-white p-0 text-slate-700 md:h-auto md:w-auto md:rounded md:p-2"
+          >
+            <RotateCw size={16} />
+          </button>
+
+          <span className="w-10 shrink-0 text-center text-[11px] font-semibold md:ml-2 md:w-auto md:text-xs">
+            {Math.round(scale * 100)}%
+          </span>
+
+          <button
+  onClick={() => insertPageAt(pageNumber, pageNumber)}
+  className="mt-1 flex h-9 w-full basis-full items-center justify-center gap-1.5 rounded-lg border border-blue-400 bg-white px-3 text-xs font-semibold text-blue-600 md:ml-3 md:mt-0 md:h-auto md:w-auto md:basis-auto md:rounded md:py-2 md:text-sm"
+>
+            <Plus size={16} />
+            Insert page here
+          </button>
+        </div>
+      </div>
+
+      <section className="relative flex min-w-0 w-full max-w-full flex-1 flex-col items-start gap-2 overflow-auto p-2 md:items-center md:p-8">
+        {rendering && (
+          <div className="fixed bottom-6 right-6 z-50 rounded bg-slate-900 px-4 py-2 text-sm text-white">
+            Rendering page...
+          </div>
+        )}
+{pdfDoc && pageNumber > 0 && (
+  <div className="flex items-center gap-2">
+    <button
+      type="button"
+      onClick={() => insertPageAt(0, 1)}
+      className="flex items-center gap-1 rounded-md border border-blue-400 bg-white px-2.5 py-1 text-xs font-medium text-blue-600 hover:bg-blue-50"
+    >
+      <Plus size={13} />
+      Insert page here
+    </button>
+
+    <button
+      type="button"
+      onClick={() => deletePageAt(pageNumber)}
+      className="rounded-md border border-red-300 bg-white px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-50"
+    >
+      Delete page
+    </button>
+  </div>
+)}
+
+{pdfDoc &&
+  Array.from(
+    { length: Math.max(0, pageNumber - 1) },
+    (_, index) => {
+      const previewPage = index + 1;
+
+      return (
+        <div
+          key={`before-page-${previewPage}`}
+          className="flex flex-col items-center gap-6"
+        >
+          <PdfPagePreview
+            pdfDoc={pdfDoc}
+            pageNumber={previewPage}
+            scale={scale}
+            imageBoxes={imageBoxes}
+            whiteoutBoxes={whiteoutBoxes}
+            shapeBoxes={shapeBoxes}
+            selectedImageId={selectedImageId}
+            onSelectImage={(id) => {
+              setSelectedImageId(id);
+              setSelectedTextId(null);
+            }}
+            onMoveImage={(id, left, top) => {
+              setImageBoxes((current) =>
+                current.map((item) => item.id === id ? { ...item, left, top } : item)
+              );
+            }}
+            onResizeImage={(id, width, height) => {
+              setImageBoxes((current) =>
+                current.map((item) => item.id === id ? { ...item, width, height } : item)
+              );
+            }}
+            onDeleteImage={(id) => {
+              setImageBoxes((current) => current.filter((item) => item.id !== id));
+              setSelectedImageId((current) => current === id ? null : current);
+            }}
+            placeholderSize={{
+              width: (pageViewportSizes[previewPage]?.width ?? pageSize.width / scale) * scale,
+              height: (pageViewportSizes[previewPage]?.height ?? pageSize.height / scale) * scale,
+            }}
+            textEdits={textEdits}
+            addedTextBoxes={Object.values(editBoxes).filter(
+              (box) => box.isNew && box.pageNumber === previewPage
+            )}
+            onCommitText={commitPreviewText}
+            onOpenTextToolbar={(box) => {
+              // A tap on inactive-page text must register its original box for
+              // export. The active editor previously only selected the ID;
+              // export skipped edited text if editBoxes lacked this entry.
+              setEditBoxes((current) => ({ ...current, [box.id]: box }));
+              pendingPreviewTextIdRef.current = box.id;
+              activatePageWithoutJump(box.pageNumber);
+            }}
+            groupText={groupTextIntoLines}
+            sampleBackground={sampleBackgroundColor}
+            onActivate={() => activatePageWithoutJump(previewPage)}
+          />
+
+  <div className="flex items-center gap-2">
+  <button
+    type="button"
+    onClick={() =>
+      insertPageAt(previewPage, previewPage)
+    }
+    className="flex items-center gap-2 rounded-md border border-blue-400 bg-white px-4 py-2 text-sm font-medium text-blue-600 hover:bg-blue-50"
+  >
+    <Plus size={16} />
+    Insert page here
+  </button>
+
+  <button
+    type="button"
+    onClick={() => deletePageAt(previewPage)}
+    className="rounded-md border border-red-300 bg-white px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50"
+  >
+    Delete page
+  </button>
+</div>
+</div>
+      );
+    }
+  )}
+  
+        <div
+        ref={pageEditorRef}
+  className={`relative bg-white shadow-xl ${
+  pageCount === 0
+    ? "hidden"
+    : addTextMode
+      ? "cursor-text"
+      : ""
+}`}
+  style={{
+    width: pageSize.width,
+    height: pageSize.height,
+    touchAction:
+      typeof window !== "undefined" &&
+      window.innerWidth < 768 &&
+      (linkAreaMode || formFieldMode !== null || whiteoutMode || annotateMode || shapeMode !== null)
+        ? "none"
+        : "auto",
+  }}
+ onPointerDown={(event) => {
+  if (addTextMode && event.pointerType !== "mouse") {
+    event.preventDefault();
+
+    const rect =
+      event.currentTarget.getBoundingClientRect();
+
+    const ratioX = event.currentTarget.offsetWidth / Math.max(rect.width, 1);
+    const ratioY = event.currentTarget.offsetHeight / Math.max(rect.height, 1);
+
+    const x = Math.max(0, Math.min(
+      Math.max(0, pageSize.width - 36),
+      (event.clientX - rect.left) * ratioX
+    ));
+
+    const y = Math.max(0, Math.min(
+      Math.max(0, pageSize.height - 14),
+      (event.clientY - rect.top) * ratioY
+    ));
+
+    addNewTextAt(x, y);
+    return;
+  }
+
+  startWhiteout(event);
+  startAnnotate(event);
+  startLinkArea(event);
+  startFormField(event);
+  startShape(event);
+}}
+onPointerMove={(event) => {
+  moveWhiteout(event);
+  moveAnnotate(event);
+  moveLinkArea(event);
+  moveFormField(event);
+  moveShape(event);
+}}
+onPointerUp={(event) => {
+  endWhiteout(event);
+  endAnnotate(event);
+  endLinkArea(event);
+  endFormField(event);
+  endShape(event);
+}}
+  onMouseDown={(event) => {
+    if (addTextMode) {
+      const rect = event.currentTarget.getBoundingClientRect();
+
+      const x = event.clientX - rect.left;
+      const y = event.clientY - rect.top;
+
+      addNewTextAt(x, y);
+      return;
+    }
+
+    setSelectedTextId(null);
+setSelectedImageId(null);
+setSelectedWhiteoutId(null);
+setSelectedAnnotateId(null);
+setSelectedFormFieldId(null);
+setSelectedShapeId(null);
+
+setShowFormProperties(false);
+setShowShapeProperties(false);
+
+setImageMoveMode(false);
+setMoveMode(false);
+  }}
+>
+          <canvas
+            ref={canvasRef}
+            className="absolute left-0 top-0 bg-white"
+          />
+{whiteoutBoxes
+  .filter((box) => box.pageNumber === pageNumber)
+  .map((box) => {
+    const whiteoutScale = scale / box.viewScale;
+
+    return (
+      <div
+  key={box.id}
+  onPointerDown={(event) => startWhiteoutMove(event, box)}
+  onPointerMove={moveWhiteoutBox}
+  onPointerUp={endWhiteoutMove}
+  className={`absolute z-[35] cursor-move bg-white ${
+    addTextMode ? "pointer-events-none" : ""
+  } ${
+    selectedWhiteoutId === box.id
+  ? "outline outline-2 outline-dashed outline-blue-500"
+  : ""
+  }`}
+  style={{
+    left: box.left * whiteoutScale,
+    top: box.top * whiteoutScale,
+    width: box.width * whiteoutScale,
+    height: box.height * whiteoutScale,
+    touchAction:
+      typeof window !== "undefined" &&
+      window.innerWidth < 768
+        ? "none"
+        : "auto",
+  }}
+/>
+    );
+  })}
+{selectedWhiteoutBox && (() => {
+  const whiteoutScale =
+    scale / selectedWhiteoutBox.viewScale;
+
+  return (
+    <div
+      className="absolute z-[60] h-4 w-4 cursor-nwse-resize rounded-sm border-2 border-white bg-blue-600 shadow"
+      style={{
+        left:
+          (selectedWhiteoutBox.left +
+            selectedWhiteoutBox.width) *
+            whiteoutScale -
+          8,
+
+        top:
+          (selectedWhiteoutBox.top +
+            selectedWhiteoutBox.height) *
+            whiteoutScale -
+          8,
+      }}
+      onPointerDown={handleWhiteoutResizeStart}
+      onPointerMove={handleWhiteoutResizeMove}
+      onPointerUp={handleWhiteoutResizeEnd}
+    />
+  );
+})()}
+{draftWhiteout && draftWhiteout.pageNumber === pageNumber && (
+  <div
+    className="pointer-events-none absolute z-20 border-2 border-dashed border-blue-500 bg-white"
+    style={{
+      left: draftWhiteout.left,
+      top: draftWhiteout.top,
+      width: draftWhiteout.width,
+      height: draftWhiteout.height,
+    }}
+  />
+)}
+{annotateBoxes
+  .filter((box) => box.pageNumber === pageNumber)
+  .map((box) => {
+    const annotateScale = scale / box.viewScale;
+
+    return (
+      <div
+  key={box.id}
+  onPointerDown={(event) => startAnnotateMove(event, box)}
+  onPointerMove={moveAnnotateBox}
+  onPointerUp={endAnnotateMove}
+  className={`absolute z-10 cursor-move ${
+    selectedAnnotateId === box.id
+      ? "outline-2 outline-yellow-500"
+      : ""
+  }`}
+  style={{
+    left: box.left * annotateScale,
+    top: box.top * annotateScale,
+    width: box.width * annotateScale,
+    height: box.height * annotateScale,
+    backgroundColor: "rgba(250, 204, 21, 0.35)",
+    touchAction:
+      typeof window !== "undefined" &&
+      window.innerWidth < 768
+        ? "none"
+        : "auto",
+  }}
+/>
+    );
+  })}
+
+{draftAnnotate && draftAnnotate.pageNumber === pageNumber && (
+  <div
+    className="pointer-events-none absolute z-20 border-2 border-dashed border-yellow-500"
+    style={{
+      left: draftAnnotate.left,
+      top: draftAnnotate.top,
+      width: draftAnnotate.width,
+      height: draftAnnotate.height,
+      backgroundColor: "rgba(250, 204, 21, 0.35)",
+    }}
+  />
+)}
+{linkBoxes
+  .filter((box) => box.pageNumber === pageNumber)
+  .map((box) => {
+    const linkScale = scale / box.viewScale;
+
+    return (
+      <div
+        key={box.id}
+        onPointerDown={(event) => startLinkMove(event, box)}
+onPointerMove={moveLinkBox}
+onPointerUp={(event) => endLinkMove(event, box)}
+        className={`absolute z-30 cursor-pointer border-2 border-dashed ${
+  selectedLinkBoxId === box.id
+    ? "border-blue-600 bg-blue-100/20"
+    : "border-transparent bg-transparent"
+}`}
+        style={{
+          left: box.left * linkScale,
+          top: box.top * linkScale,
+          width: box.width * linkScale,
+          height: box.height * linkScale,
+        }}
+        
+      />
+    );
+  })}
+{formFields
+  .filter((field) => field.pageNumber === pageNumber)
+  .map((field) => {
+    const fieldScale = scale / field.viewScale;
+
+    const width = field.width * fieldScale;
+    const height = field.height * fieldScale;
+
+    return (
+      <div
+        key={field.id}
+        onPointerDown={(event) =>
+  startFormFieldMove(event, field)
+}
+onPointerMove={(event) =>
+  moveFormFieldBox(event, field)
+}
+onPointerUp={endFormFieldMove}
+        className={`absolute z-30 flex items-center ${
+          selectedFormFieldId === field.id
+            ? "ring-2 ring-blue-500"
+            : ""
+        }`}
+        style={{
+          left: field.left * fieldScale,
+          top: field.top * fieldScale,
+          width,
+          height,
+          touchAction:
+            typeof window !== "undefined" &&
+            window.innerWidth < 768
+              ? "none"
+              : "auto",
+        }}
+        onClick={(event) => {
+          event.stopPropagation();
+          setSelectedFormFieldId(field.id);
+          setShowFormProperties(true);
+        }}
+      >
+        {field.fieldType === "text" && (
+  <div className="h-full w-full border border-slate-500 bg-white px-2 text-xs text-slate-700">
+    {field.value || "Text field"}
+  </div>
+)}
+
+        {field.fieldType === "multiline" && (
+  <div className="h-full w-full whitespace-pre-wrap border border-slate-500 bg-white p-2 text-xs text-slate-700">
+    {field.value || "Multiline text"}
+  </div>
+)}
+
+        {field.fieldType === "checkbox" && (
+  <div className="flex h-full w-full items-center justify-center border-2 border-slate-600 bg-white text-lg font-bold text-slate-800">
+    {field.checked ? "✓" : ""}
+  </div>
+)}
+
+        {field.fieldType === "radio" && (
+  <div className="flex h-full w-full items-center justify-center rounded-full border-2 border-slate-600 bg-white">
+    {field.checked && (
+      <div className="h-2.5 w-2.5 rounded-full bg-slate-800" />
+    )}
+  </div>
+)}
+
+        {field.fieldType === "dropdown" && (
+  <div className="flex h-full w-full items-center justify-between border border-slate-500 bg-white px-2 text-xs text-slate-500">
+    <span>
+      {field.value ||
+        field.options?.[0] ||
+        "Option 1"}
+    </span>
+    <span>▼</span>
+  </div>
+)}
+        {selectedFormFieldId === field.id && (
+  <button
+    type="button"
+    onPointerDown={(event) => {
+      event.preventDefault();
+      event.stopPropagation();
+    }}
+    onClick={(event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      deleteSelectedFormField();
+    }}
+    className="absolute -right-2 -top-8 rounded-md bg-red-600 px-2 py-1 text-xs font-semibold text-white shadow-md hover:bg-red-700"
+  >
+    Delete
+  </button>
+)}
+      </div>
+    );
+  })}
+  {shapeBoxes
+  .filter((shape) => shape.pageNumber === pageNumber)
+  .map((shape) => {
+    const shapeScale = scale / shape.viewScale;
+
+    const left = shape.left * shapeScale;
+    const top = shape.top * shapeScale;
+    const width = shape.width * shapeScale;
+    const height = shape.height * shapeScale;
+
+    if (
+      shape.shapeType === "line" ||
+      shape.shapeType === "arrow"
+    ) {
+      const startX = shape.startX * shapeScale;
+      const startY = shape.startY * shapeScale;
+      const endX = shape.endX * shapeScale;
+      const endY = shape.endY * shapeScale;
+
+      const deltaX = endX - startX;
+      const deltaY = endY - startY;
+
+      const length = Math.hypot(deltaX, deltaY);
+      const angle =
+        Math.atan2(deltaY, deltaX) * (180 / Math.PI);
+
+      return (
+        <div
+          key={shape.id}
+          onPointerDown={(event) =>
+  startShapeMove(event, shape)
+}
+onPointerMove={(event) =>
+  moveShapeBox(event, shape)
+}
+onPointerUp={endShapeMove}
+          className="absolute z-30"
+          style={{
+            left: startX,
+            top: startY,
+            width: length,
+            height: 2,
+            transform: `rotate(${angle}deg)`,
+            transformOrigin: "0 50%",
+            touchAction: typeof window !== "undefined" && window.innerWidth < 768 ? "none" : "auto",
+          }}
+          onClick={(event) => {
+  event.stopPropagation();
+  setSelectedShapeId(shape.id);
+  setShowShapeProperties(true);
+}}
+        >
+          <div
+  className={`w-full ${
+    selectedShapeId === shape.id
+      ? "ring-2 ring-blue-400"
+      : ""
+  }`}
+  style={{
+    height: shape.strokeWidth,
+    backgroundColor: shape.strokeColor,
+    opacity: shape.opacity,
+  }}
+/>
+
+          {shape.shapeType === "arrow" && (
+            <div
+              className="absolute right-[-2px] top-1/2 h-0 w-0 -translate-y-1/2"
+              style={{
+  borderTop: "6px solid transparent",
+  borderBottom: "6px solid transparent",
+  borderLeft: `10px solid ${shape.strokeColor}`,
+  opacity: shape.opacity,
+}}
+            />
+          )}
+          {selectedShapeId === shape.id && (
+  <button
+    type="button"
+    onPointerDown={(event) => {
+      event.preventDefault();
+      event.stopPropagation();
+    }}
+    onClick={(event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      deleteSelectedShape();
+    }}
+    className="absolute -right-2 -top-8 rounded-md bg-red-600 px-2 py-1 text-xs font-semibold text-white shadow-md hover:bg-red-700"
+  >
+    Delete
+  </button>
+)}
+        </div>
+      );
+    }
+
+    return (
+      <div
+        key={shape.id}
+        onPointerDown={(event) =>
+  startShapeMove(event, shape)
+}
+onPointerMove={(event) =>
+  moveShapeBox(event, shape)
+}
+onPointerUp={endShapeMove}
+        onClick={(event) => {
+          event.stopPropagation();
+          setSelectedShapeId(shape.id);
+          setShowShapeProperties(true);
+        }}
+        className={`absolute z-30 ${
+  shape.shapeType === "circle"
+    ? "rounded-full"
+    : ""
+} ${
+  selectedShapeId === shape.id
+    ? "ring-2 ring-blue-400"
+    : ""
+}`}
+        style={{
+  left,
+  top,
+  width,
+  height,
+  borderStyle: "solid",
+  borderColor: shape.strokeColor,
+  borderWidth: shape.strokeWidth,
+  backgroundColor: shape.fillColor,
+  opacity: shape.opacity,
+  touchAction: typeof window !== "undefined" && window.innerWidth < 768 ? "none" : "auto",
+}}
+    >
+  {selectedShapeId === shape.id && (
+    <button
+      type="button"
+      onPointerDown={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+      }}
+      onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        deleteSelectedShape();
+      }}
+      className="absolute -right-2 -top-8 rounded-md bg-red-600 px-2 py-1 text-xs font-semibold text-white shadow-md hover:bg-red-700"
+    >
+      Delete
+    </button>
+  )}
+</div>
+    );
+  })}
+  {draftShapeBox &&
+  draftShapeBox.pageNumber === pageNumber && (() => {
+    const shapeScale =
+      scale / draftShapeBox.viewScale;
+
+    if (
+      draftShapeBox.shapeType === "line" ||
+      draftShapeBox.shapeType === "arrow"
+    ) {
+      const startX =
+        draftShapeBox.startX * shapeScale;
+      const startY =
+        draftShapeBox.startY * shapeScale;
+      const endX =
+        draftShapeBox.endX * shapeScale;
+      const endY =
+        draftShapeBox.endY * shapeScale;
+
+      const deltaX = endX - startX;
+      const deltaY = endY - startY;
+
+      const length = Math.hypot(deltaX, deltaY);
+      const angle =
+        Math.atan2(deltaY, deltaX) *
+        (180 / Math.PI);
+
+      return (
+        <div
+          className="pointer-events-none absolute z-40"
+          style={{
+            left: startX,
+            top: startY,
+            width: length,
+            height: 2,
+            transform: `rotate(${angle}deg)`,
+            transformOrigin: "0 50%",
+            touchAction: typeof window !== "undefined" && window.innerWidth < 768 ? "none" : "auto",
+          }}
+        >
+          <div className="h-[2px] w-full bg-blue-500" />
+
+          {draftShapeBox.shapeType === "arrow" && (
+            <div
+              className="absolute right-[-2px] top-1/2 h-0 w-0 -translate-y-1/2"
+              style={{
+                borderTop: "6px solid transparent",
+                borderBottom: "6px solid transparent",
+                borderLeft: "10px solid rgb(59 130 246)",
+              }}
+            />
+          )}
+        </div>
+      );
+    }
+
+    return (
+      <div
+        className={`pointer-events-none absolute z-40 border-2 border-dashed border-blue-500 ${
+          draftShapeBox.shapeType === "circle"
+            ? "rounded-full"
+            : ""
+        }`}
+        style={{
+          left: draftShapeBox.left * shapeScale,
+          top: draftShapeBox.top * shapeScale,
+          width: draftShapeBox.width * shapeScale,
+          height: draftShapeBox.height * shapeScale,
+        }}
+      />
+    );
+  })()}
+  {draftFormField &&
+  draftFormField.pageNumber === pageNumber && (
+    <div
+      className="pointer-events-none absolute z-40 border-2 border-dashed border-blue-500 bg-blue-100/20"
+      style={{
+        left:
+          draftFormField.left *
+          (scale / draftFormField.viewScale),
+        top:
+          draftFormField.top *
+          (scale / draftFormField.viewScale),
+        width:
+          draftFormField.width *
+          (scale / draftFormField.viewScale),
+        height:
+          draftFormField.height *
+          (scale / draftFormField.viewScale),
+      }}
+    />
+  )}
+{draftLinkBox && draftLinkBox.pageNumber === pageNumber && (
+  <div
+    className="pointer-events-none absolute z-30 border-2 border-dashed border-blue-500 bg-blue-100/20"
+    style={{
+      left: draftLinkBox.left,
+      top: draftLinkBox.top,
+      width: draftLinkBox.width,
+      height: draftLinkBox.height,
+    }}
+  />
+)}
+{imageBoxes
+  .filter((imageBox) => imageBox.pageNumber === pageNumber)
+  .map((imageBox) => {
+    const imageScale = scale / imageBox.viewScale;
+
+    return (
+      <NextImage
+        key={imageBox.id}
+        unoptimized
+        loading="eager"
+        width={Math.max(1, Math.round(imageBox.width))}
+        height={Math.max(1, Math.round(imageBox.height))}
+        src={imageBox.src}
+        alt=""
+        draggable={false}
+        
+onPointerDown={(event) => {
+
+
+  event.preventDefault();
+  event.stopPropagation();
+setSelectedImageId(imageBox.id);
+setSelectedTextId(null);
+setMoveMode(false);
+  event.currentTarget.setPointerCapture(event.pointerId);
+
+  imageDragRef.current = {
+    id: imageBox.id,
+    startX: event.clientX,
+    startY: event.clientY,
+    initialLeft: imageBox.left,
+    initialTop: imageBox.top,
+  };
+}}
+
+onPointerMove={(event) => {
+  const drag = imageDragRef.current;
+
+  if (
+  !drag ||
+  drag.id !== imageBox.id
+) {
+    return;
+  }
+
+  const deltaX =
+    (event.clientX - drag.startX) / imageScale;
+
+  const deltaY =
+    (event.clientY - drag.startY) / imageScale;
+
+  setImageBoxes((current) =>
+    current.map((currentImage) =>
+      currentImage.id === imageBox.id
+        ? {
+            ...currentImage,
+            left: drag.initialLeft + deltaX,
+            top: drag.initialTop + deltaY,
+          }
+        : currentImage
+    )
+  );
+}}
+
+onPointerUp={(event) => {
+  if (imageDragRef.current?.id === imageBox.id) {
+    imageDragRef.current = null;
+    event.currentTarget.releasePointerCapture(event.pointerId);
+  }
+}}
+        className={`absolute z-20 select-none ${
+  selectedImageId === imageBox.id
+    ? "outline outline-2 outline-dashed outline-blue-500"
+    : ""
+}`}
+        style={{
+          left: imageBox.left * imageScale,
+          top: imageBox.top * imageScale,
+          width: imageBox.width * imageScale,
+          height: imageBox.height * imageScale,
+          touchAction:
+            typeof window !== "undefined" &&
+            window.innerWidth < 768
+              ? "none"
+              : "auto",
+        }}
+      />
+    );
+  })}
+  {selectedImageBox?.pageNumber === pageNumber && (() => {
+    
+  const imageScale = scale / selectedImageBox.viewScale;
+
+  return (
+    <div
+      className="absolute z-40 h-4 w-4 cursor-nwse-resize rounded-sm border-2 border-white bg-blue-600 shadow"
+      style={{
+        left:
+          (selectedImageBox.left + selectedImageBox.width) *
+            imageScale -
+          8,
+        top:
+          (selectedImageBox.top + selectedImageBox.height) *
+            imageScale -
+          8,
+        touchAction:
+          typeof window !== "undefined" &&
+          window.innerWidth < 768
+            ? "none"
+            : "auto",
+      }}
+      onPointerDown={handleImageResizeStart}
+onPointerMove={handleImageResizeMove}
+onPointerUp={handleImageResizeEnd}
+ 
+    />
+  );
+})()}
+{selectedAnnotateBox && (() => {
+  const annotateScale = scale / selectedAnnotateBox.viewScale;
+
+  return (
+    <div
+      className="absolute z-50 flex items-center rounded-md border border-slate-300 bg-white p-1 shadow-xl"
+      style={{
+        left: selectedAnnotateBox.left * annotateScale,
+        top: Math.max(
+          5,
+          selectedAnnotateBox.top * annotateScale - 42
+        ),
+      }}
+      onPointerDown={(event) => event.stopPropagation()}
+      onMouseDown={(event) => event.stopPropagation()}
+    >
+      <button
+        onClick={deleteSelectedAnnotate}
+        className="rounded-md px-3 py-1.5 text-sm text-red-600 hover:bg-red-50"
+      >
+        Delete
+      </button>
+    </div>
+  );
+})()}
+{selectedWhiteoutBox && (() => {
+  const whiteoutScale = scale / selectedWhiteoutBox.viewScale;
+
+  return (
+    <div
+      className="absolute z-50 flex items-center rounded-md border border-slate-300 bg-white p-0.5 shadow-xl md:p-1"
+      style={{
+        left: selectedWhiteoutBox.left * whiteoutScale,
+        top: Math.max(
+          5,
+          selectedWhiteoutBox.top * whiteoutScale - 42
+        ),
+      }}
+      onPointerDown={(event) => event.stopPropagation()}
+    >
+      <button
+        onPointerDown={(event) => {
+          if (typeof window !== "undefined" && window.innerWidth < 768) {
+            event.preventDefault();
+            event.stopPropagation();
+            deleteSelectedWhiteout();
+          }
+        }}
+        onClick={() => {
+          if (typeof window !== "undefined" && window.innerWidth < 768) return;
+          deleteSelectedWhiteout();
+        }}
+        className="rounded-md px-2 py-1 text-xs text-red-600 hover:bg-red-50 md:px-3 md:py-1.5 md:text-sm"
+        title="Delete whiteout"
+      >
+        Delete
+      </button>
+    </div>
+  );
+})()}
+  {selectedImageBox?.pageNumber === pageNumber && (() => {
+  const imageScale = scale / selectedImageBox.viewScale;
+
+  return (
+    <div
+      className="absolute z-50 flex max-w-[calc(100vw-16px)] flex-nowrap items-center justify-center gap-0.5 rounded-xl border border-slate-300 bg-white p-1 shadow-xl md:max-w-none md:justify-start md:gap-1 md:rounded-lg md:p-1"
+      style={{
+        left: selectedImageBox.left * imageScale,
+        top: Math.max(5, selectedImageBox.top * imageScale - 42),
+      }}
+      onMouseDown={(event) => event.stopPropagation()}
+    >
+     <button
+  onClick={() => setImageMoveMode((current) => !current)}
+  className={`rounded p-2 ${
+    imageMoveMode
+      ? "bg-blue-100 text-blue-700"
+      : "text-slate-600 hover:bg-blue-50 hover:text-blue-700"
+  }`}
+  title="Move image"
+>
+  <Move size={16} />
+</button> 
+      <button
+        onClick={deleteSelectedImage}
+        className="rounded px-3 py-1.5 text-sm text-red-600 hover:bg-red-50"
+        title="Delete image"
+      >
+        Delete
+      </button>
+    </div>
+  );
+})()}
+          {selectedBox && !isTextDragging &&  (() => {
+            const edit = getTextEdit(selectedBox);
+
+            const x = selectedBox.left + (edit.offsetX ?? 0);
+const y = selectedBox.top + (edit.offsetY ?? 0);
+
+            return (
+              <div
+                className="absolute z-50 flex max-w-[calc(100vw-16px)] origin-top-left scale-[0.65] flex-nowrap items-center justify-center gap-0.5 rounded-xl border border-slate-300 bg-white p-1 shadow-xl md:max-w-none md:justify-start md:gap-1 md:rounded-lg md:p-1"
+                style={{
+                  left:
+                    typeof window !== "undefined" && window.innerWidth < 768
+                      ? Math.max(5, Math.min(x - 140, pageSize.width - 320))
+                      : Math.max(5, Math.min(x, pageSize.width - 300)),
+                  right: undefined,
+                  top:
+                    typeof window !== "undefined" && window.innerWidth < 768
+                      ? (y < 60 ? y + selectedBox.height + 8 : Math.max(5, y - 48))
+                      : Math.max(5, y - 54),
+                }}
+                onMouseDown={(event) => event.stopPropagation()}
+              >
+                <button
+                  onClick={() =>
+                    updateEdit(selectedBox, {
+                      bold: !edit.bold,
+                    })
+                  }
+                  className={`rounded p-2 ${
+                    edit.bold ? "bg-blue-100 text-blue-700" : "text-slate-800 md:text-inherit"
+                  }`}
+                  title="Bold"
+                >
+                  <Bold size={15} />
+                </button>
+
+                <button
+                  onClick={() =>
+                    updateEdit(selectedBox, {
+                      italic: !edit.italic,
+                    })
+                  }
+                  className={`rounded p-2 ${
+                    edit.italic ? "bg-blue-100 text-blue-700" : "text-slate-800 md:text-inherit"
+                  }`}
+                  title="Italic"
+                >
+                  <Italic size={15} />
+                </button>
+
+                                <div className="flex shrink-0 items-center gap-0.5 md:hidden">
+                  <button
+                    type="button"
+                    aria-label="Decrease font size"
+                    onClick={() =>
+                      updateEdit(selectedBox, {
+                        fontSize: Math.max(6, Math.round(edit.fontSize) - 1),
+                      })
+                    }
+                    className="flex h-8 w-7 shrink-0 items-center justify-center rounded border border-slate-300 bg-white text-base font-bold text-slate-900"
+                  >
+                    −
+                  </button>
+
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    aria-label="Font size"
+                    min="6"
+                    max="100"
+                    step="1"
+                    value={Math.round(edit.fontSize)}
+                    onChange={(event) => {
+                      const size = Number(event.target.value);
+                      if (Number.isFinite(size) && size >= 6 && size <= 100) {
+                        updateEdit(selectedBox, { fontSize: size });
+                      }
+                    }}
+                    className="h-8 w-9 min-w-0 rounded border border-slate-300 bg-white px-0 text-center text-sm font-bold text-slate-900 opacity-100 outline-none focus:border-blue-500"
+                    style={{ WebkitTextFillColor: "#0f172a" }}
+                  />
+
+                  <button
+                    type="button"
+                    aria-label="Increase font size"
+                    onClick={() =>
+                      updateEdit(selectedBox, {
+                        fontSize: Math.min(100, Math.round(edit.fontSize) + 1),
+                      })
+                    }
+                    className="flex h-8 w-7 shrink-0 items-center justify-center rounded border border-slate-300 bg-white text-base font-bold text-slate-900"
+                  >
+                    +
+                  </button>
+                </div>
+
+                <input
+                  type="number"
+                  min="6"
+                  max="100"
+                  value={Math.round(edit.fontSize)}
+                  onChange={(event) =>
+                    updateEdit(selectedBox, {
+                      fontSize: Number(event.target.value),
+                    })
+                  }
+                  className="hidden w-14 shrink-0 rounded border px-2 py-1.5 text-sm md:block"
+                  title="Font size"
+                />
+
+                <details className="relative shrink-0 md:hidden">
+                  <summary className="flex h-8 w-8 cursor-pointer list-none items-center justify-center rounded text-slate-600 hover:bg-blue-50 hover:text-blue-700 [&::-webkit-details-marker]:hidden" title="Font family">
+                    <Type size={17} />
+                  </summary>
+                  <div className="absolute left-1/2 top-10 z-[60] -translate-x-1/2 rounded-lg border border-slate-200 bg-white p-2 shadow-xl">
+                <select
+  value={edit.fontFamily}
+  onChange={(event) =>
+    updateEdit(selectedBox, {
+      fontFamily: event.target.value,
+    })
+  }
+  className="w-40 rounded border px-2 py-1.5 text-sm"
+  title="Font family"
+  style={{
+    fontFamily: edit.fontFamily,
+  }}
+>
+  <option
+    value={selectedBox.fontFamily}
+    style={{
+      fontFamily: selectedBox.fontFamily,
+    }}
+  >
+    {selectedBox.fontFamily}
+  </option>
+
+  {fontOptions
+    .filter((font) => font !== selectedBox.fontFamily)
+    .map((font) => (
+      <option
+        key={font}
+        value={font}
+        style={{
+          fontFamily: font,
+        }}
+      >
+        {font}
+      </option>
+    ))}
+</select>
+                  </div>
+                </details>
+
+                <select
+  value={edit.fontFamily}
+  onChange={(event) =>
+    updateEdit(selectedBox, {
+      fontFamily: event.target.value,
+    })
+  }
+  className="hidden w-48 shrink-0 rounded border px-2 py-1.5 text-sm md:block"
+  title="Font family"
+  style={{
+    fontFamily: edit.fontFamily,
+  }}
+>
+  <option
+    value={selectedBox.fontFamily}
+    style={{
+      fontFamily: selectedBox.fontFamily,
+    }}
+  >
+    {selectedBox.fontFamily}
+  </option>
+
+  {fontOptions
+    .filter((font) => font !== selectedBox.fontFamily)
+    .map((font) => (
+      <option
+        key={font}
+        value={font}
+        style={{
+          fontFamily: font,
+        }}
+      >
+        {font}
+      </option>
+    ))}
+</select>
+
+                <label className="relative flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded text-slate-600 hover:bg-blue-50 hover:text-blue-700 md:hidden" title="Text color">
+                  <Palette size={17} />
+                  <input
+                    type="color"
+                    value={edit.color}
+                    onChange={(event) =>
+                      updateEdit(selectedBox, {
+                        color: event.target.value,
+                      })
+                    }
+                    className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                  />
+                </label>
+
+                <input
+                  type="color"
+                  value={edit.color}
+                  onChange={(event) =>
+                    updateEdit(selectedBox, {
+                      color: event.target.value,
+                    })
+                  }
+                  className="hidden h-8 w-8 shrink-0 cursor-pointer md:block"
+                  title="Text color"
+                />
+
+                <button
+                  onClick={createLink}
+                  className={`rounded p-2 ${
+                    edit.link ? "bg-blue-100 text-blue-700" : "text-slate-800 md:text-inherit"
+                  }`}
+                  title="Create link"
+                >
+                  <LinkIcon size={15} />
+                </button>
+
+                <button
+                  onClick={() => setMoveMode((current) => !current)}
+                  className={`rounded p-2 ${
+                    moveMode ? "bg-blue-100 text-blue-700" : "text-slate-800 md:text-inherit"
+                  }`}
+                  title="Move text"
+                >
+                  <Move size={15} />
+                </button>
+
+                <button
+  onClick={duplicateSelectedText}
+  title="Duplicate"
+  className="rounded p-2 text-slate-600 transition hover:bg-blue-50 hover:text-blue-700"
+>
+  <Copy size={15} />
+</button>
+
+                <button
+                  onClick={deleteSelectedText}
+                  title="Delete"
+                  className="rounded p-2 text-red-600 hover:bg-red-50"
+                >
+                  <Trash2 size={15} />
+                </button>
+              </div>
+            );
+          })()}
+{isTextDragging && textSnapGuides.x !== undefined && (
+  <div
+    className="pointer-events-none absolute z-50 bg-cyan-500"
+    style={{
+      left: textSnapGuides.x,
+      top: 0,
+      width: 1,
+      height: pageSize.height,
+    }}
+  />
+)}
+
+{isTextDragging && textSnapGuides.y !== undefined && (
+  <div
+    className="pointer-events-none absolute z-50 bg-cyan-500"
+    style={{
+      left: 0,
+      top: textSnapGuides.y,
+      width: pageSize.width,
+      height: 1,
+    }}
+  />
+)}
+          <div className="pointer-events-none absolute inset-0">
+            {textBoxes.map((box) => {
+  const edit = textEdits[box.id];
+  const activeEdit = edit || createDefaultEdit(box);
+const measuredTextBox = measureTextBox(
+  activeEdit.text,
+  activeEdit.fontSize,
+  activeEdit.fontFamily,
+  activeEdit.bold,
+  activeEdit.italic
+);
+  const left = box.left + activeEdit.offsetX;
+  const top = box.top + activeEdit.offsetY;
+
+  const isSelected = selectedTextId === box.id;
+
+  const originalBold =
+  /Bold/i.test(box.fontName);
+
+const originalItalic =
+  /(Italic|Oblique)/i.test(box.fontName);
+
+const hasChanged =
+  !!edit &&
+  (
+    edit.text !== box.text ||
+    edit.deleted ||
+    edit.offsetX !== 0 ||
+    edit.offsetY !== 0 ||
+    edit.bold !== originalBold ||
+    edit.italic !== originalItalic ||
+    edit.fontSize !== box.fontSize ||
+    edit.fontFamily !== box.fontFamily ||
+    edit.color !== "#111111"
+  );
+
+  const shouldMaskOriginal =
+  !box.isNew && (isSelected || hasChanged);
+
+  return (
+    <div key={box.id} className="contents">
+{/* PERMANENT MASK OVER ORIGINAL PDF TEXT */}
+      {shouldMaskOriginal && (
+        <div
+          className="pointer-events-none absolute z-20"
+          style={{
+            ...(typeof window !== "undefined" && window.innerWidth < 768
+              ? originalTextMaskBounds(box)
+              : {
+                  left: box.left - 2,
+                  top: box.top - 1,
+                  width: Math.max(box.width + 6, 14),
+                  height: Math.max(box.height * 1.25, 14) + 3,
+                }),
+
+            backgroundColor: box.backgroundColor,
+
+            transform: `rotate(${box.angle}deg)`,
+            transformOrigin: "0 0",
+          }}
+        />
+      )}
+
+      {/* DELETED TEXT:
+          Keep blank area clickable so new text can be entered */}
+      {edit?.deleted && !isSelected && (
+        <button
+          type="button"
+          onPointerDown={(event) => {
+            if (event.pointerType === "mouse") return;
+
+            event.preventDefault();
+            event.stopPropagation();
+
+            flushSync(() => {
+              startEditing(box);
+            });
+
+            requestAnimationFrame(() => {
+              const textarea =
+                document.querySelector<HTMLTextAreaElement>(`textarea[data-text-box-id="${box.id}"]`)
+
+              textarea?.focus({ preventScroll: true });
+            });
+          }}
+          onMouseDown={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation();
+            startEditing(box);
+          }}
+          title="Click to add text here"
+          className="pointer-events-auto absolute z-30 cursor-text border border-transparent bg-transparent p-0 outline-none hover:border-blue-300"
+          style={{
+            left: box.left,
+            top: box.top,
+
+            width: Math.max(box.width + 6, 15),
+            height: Math.max(box.height * 1.25, 14),
+
+            transform: `rotate(${box.angle}deg)`,
+            transformOrigin: "0 0",
+          }}
+        />
+      )}
+
+      {/* CURRENTLY EDITING */}
+      {isSelected && (
+        <textarea
+          data-text-box-id={box.id}
+          onMouseDown={(event) => {
+  event.stopPropagation();
+}}
+          ref={(element) => {
+  if (!element) return;
+
+  if (element.dataset.focusHandled !== "1") {
+    element.dataset.focusHandled = "1";
+    element.focus({ preventScroll: true });
+  }
+
+  const pendingCaret = pendingCaretRef.current;
+
+  if (
+    pendingCaret &&
+    pendingCaret.id === box.id
+  ) {
+    requestAnimationFrame(() => {
+      element.focus({ preventScroll: true });
+
+      const rect =
+        element.getBoundingClientRect();
+
+      const clickX =
+        pendingCaret.clientX - rect.left;
+
+      const canvas =
+        document.createElement("canvas");
+
+      const context =
+        canvas.getContext("2d");
+
+      if (context) {
+        context.font = `${
+          activeEdit.italic ? "italic " : ""
+        }${
+          activeEdit.bold ? "700 " : "400 "
+        }${activeEdit.fontSize}px ${
+          activeEdit.fontFamily
+        }`;
+
+        let caretPosition = 0;
+
+        for (
+          let i = 0;
+          i <= activeEdit.text.length;
+          i++
+        ) {
+          const before =
+            activeEdit.text.slice(0, i);
+
+          const width =
+            context.measureText(before).width;
+
+          if (width >= clickX) {
+            const previousWidth =
+              i > 0
+                ? context.measureText(
+                    activeEdit.text.slice(0, i - 1)
+                  ).width
+                : 0;
+
+            caretPosition =
+              clickX - previousWidth <
+              width - clickX
+                ? Math.max(0, i - 1)
+                : i;
+
+            break;
+          }
+
+          caretPosition = i;
+        }
+
+        element.setSelectionRange(
+          caretPosition,
+          caretPosition
+        );
+      }
+
+      pendingCaretRef.current = null;
+    });
+  }
+}}
+          value={activeEdit.text}
+          spellCheck={false}
+          data-gramm="false"
+          data-gramm_editor="false"
+          data-enable-grammarly="false"
+
+          onPointerDown={(event) => {
+  event.stopPropagation();
+
+  if (!moveMode) return;
+
+  event.preventDefault();
+
+  event.currentTarget.setPointerCapture(event.pointerId);
+
+  dragRef.current = {
+    id: box.id,
+    startX: event.clientX,
+    startY: event.clientY,
+    initialX: activeEdit.offsetX,
+    initialY: activeEdit.offsetY,
+  };
+
+  setTextSnapGuides({});
+  setIsTextDragging(true);
+}}
+
+          onPointerMove={(event) => {
+  const drag = dragRef.current;
+
+  if (
+    !moveMode ||
+    !drag ||
+    drag.id !== box.id
+  ) {
+    return;
+  }
+
+  const nextOffsetX =
+    drag.initialX + event.clientX - drag.startX;
+
+  const nextOffsetY =
+    drag.initialY + event.clientY - drag.startY;
+
+  updateEdit(box, {
+    offsetX: nextOffsetX,
+    offsetY: nextOffsetY,
+  });
+}}
+
+          onPointerUp={(event) => {
+  dragRef.current = null;
+  setIsTextDragging(false);
+
+  if (
+    event.currentTarget.hasPointerCapture(
+      event.pointerId
+    )
+  ) {
+    event.currentTarget.releasePointerCapture(
+      event.pointerId
+    );
+  }
+}}
+
+          onClick={(event) => event.stopPropagation()}
+          onDoubleClick={(event) => {
+  event.preventDefault();
+  event.stopPropagation();
+
+  event.currentTarget.focus({ preventScroll: true });
+  event.currentTarget.select();
+}}
+
+          onChange={(event) =>
+            updateEdit(box, {
+              text: event.target.value,
+              deleted: false,
+            })
+          }
+
+          className={`pointer-events-auto absolute z-40 resize-none overflow-hidden border bg-transparent p-0 outline-none ${
+  moveMode
+    ? "border-dashed border-blue-500"
+    : "border-transparent"
+}`}
+
+          style={{
+            left,
+            top,
+
+            width:
+              typeof window !== "undefined" &&
+              window.innerWidth < 768 &&
+              activeEdit.fontSize < 16
+                ? measuredTextBox.width * (16 / activeEdit.fontSize)
+                : measuredTextBox.width,
+            height:
+              typeof window !== "undefined" &&
+              window.innerWidth < 768 &&
+              activeEdit.fontSize < 16
+                ? measuredTextBox.height * (16 / activeEdit.fontSize)
+                : measuredTextBox.height,
+            minWidth:
+              typeof window !== "undefined" &&
+              window.innerWidth < 768 &&
+              activeEdit.fontSize < 16
+                ? measuredTextBox.width * (16 / activeEdit.fontSize)
+                : measuredTextBox.width,
+            minHeight:
+              typeof window !== "undefined" &&
+              window.innerWidth < 768 &&
+              activeEdit.fontSize < 16
+                ? measuredTextBox.height * (16 / activeEdit.fontSize)
+                : measuredTextBox.height,
+
+            fontFamily: activeEdit.fontFamily,
+
+            fontSize:
+              typeof window !== "undefined" && window.innerWidth < 768
+                ? Math.max(activeEdit.fontSize, 16)
+                : activeEdit.fontSize,
+
+            fontWeight:
+              activeEdit.bold ? 700 : 400,
+
+            fontStyle:
+              activeEdit.italic
+                ? "italic"
+                : "normal",
+
+            lineHeight: 1.05,
+
+            color: activeEdit.color,
+
+            backgroundColor: "transparent",
+
+            transform:
+              typeof window !== "undefined" &&
+              window.innerWidth < 768 &&
+              activeEdit.fontSize < 16
+                ? `rotate(${box.angle}deg) scale(${activeEdit.fontSize / 16})`
+                : `rotate(${box.angle}deg)`,
+
+            transformOrigin: "0 0",
+
+            cursor:
+              moveMode ? "move" : "text",
+              touchAction: moveMode ? "none" : "auto",
+userSelect: moveMode ? "none" : "text",
+
+            caretColor: "#2563eb",
+          }}
+        />
+      )}
+
+      {/* FINISHED EDITED TEXT */}
+      {!isSelected &&
+  edit &&
+  !edit.deleted &&
+  (hasChanged ||
+    (box.isNew && !!activeEdit.text.trim())) && (
+          <textarea
+            readOnly
+            value={activeEdit.text}
+            rows={1}
+            spellCheck={false}
+            tabIndex={-1}
+
+            onMouseDown={(event) =>
+              event.stopPropagation()
+            }
+
+            onClick={(event) => {
+              event.stopPropagation();
+              startEditing(box);
+            }}
+
+            className={`pointer-events-auto absolute z-40 cursor-text resize-none overflow-hidden border border-transparent bg-transparent p-0 text-left outline-none hover:border-blue-500 ${addTextMode ? "pointer-events-none" : ""}`}
+
+            style={{
+              left,
+              top,
+
+              width: measuredTextBox.width,
+
+              height: measuredTextBox.height,
+minHeight: measuredTextBox.height,
+
+              backgroundColor: "transparent",
+
+              color: activeEdit.color,
+
+              fontFamily:
+                activeEdit.fontFamily,
+
+              fontSize:
+                activeEdit.fontSize,
+
+              fontWeight:
+                activeEdit.bold
+                  ? 700
+                  : 400,
+
+              fontStyle:
+                activeEdit.italic
+                  ? "italic"
+                  : "normal",
+
+              lineHeight: 1.05,
+
+              transform: `rotate(${box.angle}deg)`,
+
+              transformOrigin: "0 0",
+
+              whiteSpace: "pre-wrap",
+            }}
+          />
+        )}
+
+      {/* ORIGINAL UNEDITED TEXT CLICK AREA */}
+      {!isSelected && !hasChanged && (
+        <button
+          type="button"
+
+          aria-label={`Edit ${box.text}`}
+
+          onPointerDown={(event) => {
+  event.stopPropagation();
+
+  pendingCaretRef.current = {
+    id: box.id,
+    clientX: event.clientX,
+  };
+
+  textClickRef.current = {
+    id: box.id,
+    time: Date.now(),
+  };
+}}
+
+onClick={(event) => {
+  event.stopPropagation();
+  startEditing(box);
+}}
+
+          className={`pointer-events-auto absolute z-30 cursor-text border border-dashed bg-transparent p-0 outline-none ${
+  addTextMode ? "pointer-events-none" : ""
+} ${
+  box.isNew && !activeEdit.text.trim()
+    ? "border-blue-500"
+    : "border-transparent hover:border-blue-500"
+}`}
+
+          style={{
+            left: box.left,
+            top: box.top,
+
+            width:
+              typeof window !== "undefined" &&
+              window.innerWidth < 768
+                ? Math.max(box.width + 2, 8)
+                : Math.max(measuredTextBox.width, box.width + 4),
+
+height: Math.max(
+  measuredTextBox.height,
+  box.height + 2
+),
+
+            transform: `rotate(${box.angle}deg)`,
+
+            transformOrigin: "0 0",
+          }}
+        />
+      )}
+    </div>
+  );
+})}
+          </div>
+        </div>
+        {pdfDoc && (
+  <button
+    type="button"
+    onClick={() =>
+      insertPageAt(pageNumber, pageNumber)
+    }
+    className="flex items-center gap-2 rounded-md border border-blue-400 bg-white px-4 py-2 text-sm font-medium text-blue-600 hover:bg-blue-50"
+  >
+    <Plus size={16} />
+    Insert page here
+  </button>
+)}
+
+{pdfDoc &&
+  Array.from(
+    { length: Math.max(0, pageCount - pageNumber) },
+    (_, index) => {
+      const previewPage =
+        pageNumber + index + 1;
+
+      return (
+        <div
+          key={`after-page-${previewPage}`}
+          className="flex flex-col items-center gap-6"
+        >
+          <PdfPagePreview
+            pdfDoc={pdfDoc}
+            pageNumber={previewPage}
+            scale={scale}
+            imageBoxes={imageBoxes}
+            whiteoutBoxes={whiteoutBoxes}
+            shapeBoxes={shapeBoxes}
+            selectedImageId={selectedImageId}
+            onSelectImage={(id) => {
+              setSelectedImageId(id);
+              setSelectedTextId(null);
+            }}
+            onMoveImage={(id, left, top) => {
+              setImageBoxes((current) =>
+                current.map((item) => item.id === id ? { ...item, left, top } : item)
+              );
+            }}
+            onResizeImage={(id, width, height) => {
+              setImageBoxes((current) =>
+                current.map((item) => item.id === id ? { ...item, width, height } : item)
+              );
+            }}
+            onDeleteImage={(id) => {
+              setImageBoxes((current) => current.filter((item) => item.id !== id));
+              setSelectedImageId((current) => current === id ? null : current);
+            }}
+            placeholderSize={{
+              width: (pageViewportSizes[previewPage]?.width ?? pageSize.width / scale) * scale,
+              height: (pageViewportSizes[previewPage]?.height ?? pageSize.height / scale) * scale,
+            }}
+            textEdits={textEdits}
+            addedTextBoxes={Object.values(editBoxes).filter(
+              (box) => box.isNew && box.pageNumber === previewPage
+            )}
+            onCommitText={commitPreviewText}
+            onOpenTextToolbar={(box) => {
+              // A tap on inactive-page text must register its original box for
+              // export. The active editor previously only selected the ID;
+              // export skipped edited text if editBoxes lacked this entry.
+              setEditBoxes((current) => ({ ...current, [box.id]: box }));
+              pendingPreviewTextIdRef.current = box.id;
+              activatePageWithoutJump(box.pageNumber);
+            }}
+            groupText={groupTextIntoLines}
+            sampleBackground={sampleBackgroundColor}
+            onActivate={() => activatePageWithoutJump(previewPage)}
+          />
+
+          <button
+            type="button"
+            onClick={() =>
+              insertPageAt(
+                previewPage,
+                previewPage
+              )
+            }
+            className="flex items-center gap-2 rounded-md border border-blue-400 bg-white px-4 py-2 text-sm font-medium text-blue-600 hover:bg-blue-50"
+          >
+            <Plus size={16} />
+            Insert page here
+          </button>
+        </div>
+      );
+    }
+  )}
+      </section>
+    </main>
+  );
+}
