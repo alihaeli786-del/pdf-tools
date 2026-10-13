@@ -18,6 +18,8 @@ type ConversionMode =
   | "layout"
   | "tables";
 
+type SheetOutput = "single" | "separate";
+
 type PdfTextItem = {
   text: string;
   x: number;
@@ -70,6 +72,9 @@ export default function PdfToExcelPage() {
 
   const [conversionMode, setConversionMode] =
     useState<ConversionMode>("tables");
+
+  const [sheetOutput, setSheetOutput] =
+    useState<SheetOutput>("single");
 
   const clearResult = () => {
     if (downloadUrl) {
@@ -166,6 +171,7 @@ export default function PdfToExcelPage() {
 
       setPreviewUrl(preview);
       setConversionMode("tables");
+      setSheetOutput("single");
     } catch (error) {
       console.error(
         "PDF to Excel load error:",
@@ -517,6 +523,61 @@ export default function PdfToExcelPage() {
     return closestIndex;
   };
 
+  const getTableHeaderRole = (text: string): "date" | "text" | "money" | null => {
+    const label = text.toLowerCase().replace(/\([^)]*\)/g, "")
+      .replace(/[£$€¥]/g, "").replace(/\s+/g, " ").trim();
+    if (/^(?:(?:transaction|posting|value) )?date$/.test(label)) return "date";
+    if (/^(?:description|details|particulars|narrative|reference|ref|type|transaction type)$/.test(label)) return "text";
+    if (/^(?:paid in|paid out|money in|money out|credit|credits|debit|debits|deposit|deposits|withdrawal|withdrawals|amount|balance|running balance)$/.test(label)) return "money";
+    return null;
+  };
+
+  const findSharedTableHeader = (pages: PdfRow[][]): PdfTextItem[] | null => {
+    const candidates = new Map<string, { items: PdfTextItem[]; count: number }>();
+    for (const rows of pages) {
+      for (const row of rows) {
+        const items = [...row.items].sort((a, b) => a.x - b.x);
+        const roles = items.map((item) => getTableHeaderRole(item.text));
+        // Only use complete, clearly recognized header rows. Otherwise retain
+        // the existing position-based column detection for this document.
+        if (items.length < 3 || roles.some((role) => role === null) ||
+            !roles.includes("date") || !roles.includes("text") || !roles.includes("money")) continue;
+        if (items.some((item, index) => index > 0 && item.x - items[index - 1].x < 12)) continue;
+        const key = items.map((item) => item.text.toLowerCase().replace(/\s+/g, " ").trim()).join("|");
+        const existing = candidates.get(key);
+        if (existing) existing.count++;
+        else candidates.set(key, { items, count: 1 });
+      }
+    }
+    let best: { items: PdfTextItem[]; count: number } | null = null;
+    for (const candidate of candidates.values()) {
+      if (!best || candidate.count > best.count) best = candidate;
+    }
+    return best?.items ?? null;
+  };
+
+  const mapSingleTableColumn = (item: PdfTextItem, row: PdfRow, header: PdfTextItem[]) => {
+    const fallback = findNearestColumn(item.x, header.map((cell) => cell.x));
+    const dateIndex = header.findIndex((cell) => getTableHeaderRole(cell.text) === "date");
+    if (dateIndex < 0 || row.items.length < 3) return fallback;
+    const dateLeft = header[dateIndex].x - 4;
+    const dateRight = header[dateIndex + 1]?.x ?? Number.POSITIVE_INFINITY;
+    const dateText = row.items.filter((cell) => cell.x >= dateLeft && cell.x < dateRight - 4)
+      .map((cell) => cell.text.trim()).join(" ");
+    const isDate = /^(?:\d{1,4}[/.\-]\d{1,2}(?:[/.\-]\d{1,4})?|\d{1,2} [a-z]{3,9}(?: \d{2,4})?|[a-z]{3,9} \d{1,2}(?:,? \d{2,4})?)$/i.test(dateText);
+    const isAmount = /^(?:[+-]?\s*[£$€¥]?\s*\d[\d,]*(?:\.\d+)?(?:\s*(?:GBP|USD|EUR))?|\([£$€¥]?\d[\d,]*(?:\.\d+)?\))$/.test(item.text.trim());
+    if (!isDate || !isAmount) return fallback;
+    // Numbers are frequently right aligned in PDF tables. Their center must
+    // stay in the band belonging to the header, instead of selecting whichever
+    // header happens to be nearest to the number's left edge.
+    const center = item.x + Math.max(item.width, 0) / 2;
+    let band = -1;
+    for (let index = 0; index < header.length; index++) {
+      if (center >= header[index].x - 2) band = index;
+    }
+    return band >= 0 && getTableHeaderRole(header[band].text) === "money" ? band : fallback;
+  };
+
   const convertKeepLayoutExcel = async () => {
     if (!file) return;
 
@@ -555,6 +616,13 @@ export default function PdfToExcelPage() {
       workbook.created =
         new Date();
 
+      if (sheetOutput === "single" && pdf.numPages * 48 > 1048576) {
+        throw new Error("Single Sheet exceeds Excel's row limit. Use Separate Sheets.");
+      }
+      const combinedWorksheet = sheetOutput === "single"
+        ? workbook.addWorksheet("All Pages")
+        : null;
+
       for (
         let pageNumber = 1;
         pageNumber <= pdf.numPages;
@@ -573,10 +641,8 @@ export default function PdfToExcelPage() {
         const textContent =
           await page.getTextContent();
 
-        const worksheet =
-          workbook.addWorksheet(
-            `Page ${pageNumber}`
-          );
+        const worksheet = combinedWorksheet ??
+          workbook.addWorksheet(`Page ${pageNumber}`);
 
         /*
           A fine Excel grid lets us keep
@@ -586,6 +652,8 @@ export default function PdfToExcelPage() {
 
         const totalColumns = 24;
         const totalRows = 48;
+        const rowOffset = sheetOutput === "single"
+          ? (pageNumber - 1) * totalRows : 0;
 
         for (
           let columnIndex = 1;
@@ -603,7 +671,7 @@ export default function PdfToExcelPage() {
           rowIndex++
         ) {
           worksheet.getRow(
-            rowIndex
+            rowOffset + rowIndex
           ).height = 12;
         }
 
@@ -670,7 +738,7 @@ export default function PdfToExcelPage() {
 
           let targetCell =
             worksheet.getCell(
-              rowIndex,
+              rowOffset + rowIndex,
               targetColumn
             );
 
@@ -694,7 +762,7 @@ export default function PdfToExcelPage() {
 
             targetCell =
               worksheet.getCell(
-                rowIndex,
+                rowOffset + rowIndex,
                 targetColumn
               );
           }
@@ -896,7 +964,7 @@ export default function PdfToExcelPage() {
             ) {
               applyCellBorder(
                 worksheet.getCell(
-                  rowIndex,
+                  rowOffset + rowIndex,
                   column
                 ),
                 "bottom"
@@ -944,7 +1012,7 @@ export default function PdfToExcelPage() {
             ) {
               applyCellBorder(
                 worksheet.getCell(
-                  row,
+                  rowOffset + row,
                   columnIndex
                 ),
                 "right"
@@ -1546,7 +1614,7 @@ export default function PdfToExcelPage() {
               ) {
                 applyCellBorder(
                   worksheet.getCell(
-                    rowIndex,
+                    rowOffset + rowIndex,
                     column
                   ),
                   "bottom"
@@ -1687,7 +1755,7 @@ export default function PdfToExcelPage() {
               ) {
                 applyCellBorder(
                   worksheet.getCell(
-                    rowIndex,
+                    rowOffset + rowIndex,
                     column
                   ),
                   "left"
@@ -1701,7 +1769,7 @@ export default function PdfToExcelPage() {
 
               applyCellBorder(
                 worksheet.getCell(
-                  rowIndex,
+                  rowOffset + rowIndex,
                   lastColumn
                 ),
                 "right"
@@ -1721,7 +1789,7 @@ export default function PdfToExcelPage() {
               ) {
                 applyCellBorder(
                   worksheet.getCell(
-                    rowIndex,
+                    rowOffset + rowIndex,
                     column
                   ),
                   "bottom"
@@ -1745,6 +1813,7 @@ export default function PdfToExcelPage() {
           },
         ];
 
+        if (sheetOutput !== "single" || pageNumber === 1) {
         worksheet.pageSetup = {
           orientation:
             viewport.width >
@@ -1765,6 +1834,7 @@ export default function PdfToExcelPage() {
             footer: 0,
           },
         };
+        }
 
         setProgress(
           Math.round(
@@ -1863,11 +1933,8 @@ export default function PdfToExcelPage() {
       workbook.created =
         new Date();
 
-      for (
-        let pageNumber = 1;
-        pageNumber <= pdf.numPages;
-        pageNumber++
-      ) {
+      let referenceWidth = 0;
+      const readPageItems = async (pageNumber: number): Promise<PdfTextItem[]> => {
         const page =
           await pdf.getPage(
             pageNumber
@@ -1913,22 +1980,59 @@ export default function PdfToExcelPage() {
           });
         }
 
-        const worksheet =
-          workbook.addWorksheet(
-            `Page ${pageNumber}`
-          );
+        if (sheetOutput === "single") {
+          const width = page.getViewport({ scale: 1 }).width;
+          if (!referenceWidth) referenceWidth = width;
+          const ratio = width > 0 ? referenceWidth / width : 1;
+          return items.map((item) => ({ ...item, x: item.x * ratio, width: item.width * ratio }));
+        }
+        return items;
+      };
+
+      const singlePages: PdfTextItem[][] = [];
+      let sharedColumns: number[] = [];
+      let sharedHeader: PdfTextItem[] | null = null;
+      if (sheetOutput === "single") {
+        for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
+          singlePages.push(await readPageItems(pageNumber));
+          setProgress(Math.round(pageNumber / pdf.numPages * 35));
+        }
+        const singlePageRows = singlePages.map((items) =>
+          collapseLongTextBlocks(groupItemsIntoRows(items))
+        );
+        sharedHeader = findSharedTableHeader(singlePageRows);
+        sharedColumns = sharedHeader ? sharedHeader.map((item) => item.x)
+          : detectColumns(singlePageRows.flat());
+        if (sharedColumns.length > 16384) {
+          throw new Error("Single Sheet exceeds Excel's column limit. Use Separate Sheets.");
+        }
+      }
+      const combinedWorksheet = sheetOutput === "single"
+        ? workbook.addWorksheet("All Pages")
+        : null;
+
+      for (
+        let pageNumber = 1;
+        pageNumber <= pdf.numPages;
+        pageNumber++
+      ) {
+        const items = singlePages[pageNumber - 1] ?? await readPageItems(pageNumber);
+
+        const worksheet = combinedWorksheet ??
+          workbook.addWorksheet(`Page ${pageNumber}`);
+        const rowOffset = combinedWorksheet ? worksheet.rowCount : 0;
 
         if (
           items.length === 0
         ) {
-          worksheet.getCell(
-            "A1"
-          ).value =
-            "No selectable text found on this page.";
+          if (rowOffset + 2 > 1048576) {
+            throw new Error("Single Sheet exceeds Excel's row limit. Use Separate Sheets.");
+          }
+          worksheet.getCell(rowOffset + 1, 1).value = combinedWorksheet
+            ? `Page ${pageNumber}: No selectable text found on this page.`
+            : "No selectable text found on this page.";
 
-          worksheet.getCell(
-            "A2"
-          ).value =
+          worksheet.getCell(rowOffset + 2, 1).value =
             "This page may be scanned or image-based.";
         } else {
           const rawRows =
@@ -1941,8 +2045,14 @@ export default function PdfToExcelPage() {
               rawRows
             );
 
-          const columns =
-            detectColumns(rows);
+          const pageHeader = combinedWorksheet
+            ? sharedHeader
+            : findSharedTableHeader([rows]);
+          const columns = combinedWorksheet ? sharedColumns
+            : pageHeader ? pageHeader.map((item) => item.x) : detectColumns(rows);
+          if (rowOffset + rows.length > 1048576) {
+            throw new Error("Single Sheet exceeds Excel's row limit. Use Separate Sheets.");
+          }
 
           rows.forEach(
             (
@@ -1959,11 +2069,9 @@ export default function PdfToExcelPage() {
                 const item of
                 pdfRow.items
               ) {
-                const columnIndex =
-                  findNearestColumn(
-                    item.x,
-                    columns
-                  );
+                const columnIndex = pageHeader
+                  ? mapSingleTableColumn(item, pdfRow, pageHeader)
+                  : findNearestColumn(item.x, columns);
 
                 const existing =
                   mappedCells.get(
@@ -1980,7 +2088,7 @@ export default function PdfToExcelPage() {
 
               const excelRow =
                 worksheet.getRow(
-                  rowIndex + 1
+                  rowOffset + rowIndex + 1
                 );
 
               const isTableRow =
@@ -2101,9 +2209,8 @@ export default function PdfToExcelPage() {
 
         setProgress(
           Math.round(
-            (pageNumber /
-              pdf.numPages) *
-              100
+            (sheetOutput === "single" ? 35 : 0) +
+            (pageNumber / pdf.numPages) * (sheetOutput === "single" ? 65 : 100)
           )
         );
       }
@@ -2285,12 +2392,34 @@ export default function PdfToExcelPage() {
               <button
                 type="button"
                 onClick={resetTool}
+                disabled={converting}
                 className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-600 transition hover:border-red-200 hover:bg-red-50 hover:text-red-600"
               >
                 <X size={16} />
                 Remove
               </button>
             </div>
+
+            {/* EXCEL SHEET OUTPUT */}
+            <fieldset disabled={converting} className="mt-5 rounded-2xl border border-slate-200 bg-slate-50/70 p-3 sm:p-4">
+              <legend className="px-2 text-sm font-bold text-slate-950">Excel sheet output</legend>
+              <div className="grid grid-cols-2 gap-2 sm:gap-3">
+                {([
+                  ["single", "Single Sheet", "All pages in one sheet"],
+                  ["separate", "Separate Sheets", "One sheet per page"],
+                ] as const).map(([value, label, description]) => (
+                  <label key={value} className={`flex min-w-0 cursor-pointer items-center gap-2 rounded-xl border-2 px-3 py-3 transition focus-within:ring-2 focus-within:ring-orange-500 focus-within:ring-offset-2 ${sheetOutput === value ? "border-orange-500 bg-orange-50" : "border-slate-200 bg-white hover:border-orange-300"} ${converting ? "cursor-wait opacity-60" : ""}`}>
+                    <input type="radio" name="sheet-output" value={value} checked={sheetOutput === value}
+                      onChange={() => { clearResult(); setSheetOutput(value); }}
+                      className="h-4 w-4 shrink-0 accent-orange-500" />
+                    <span className="min-w-0">
+                      <span className="block text-sm font-bold leading-5 text-slate-950">{label}</span>
+                      <span className="mt-0.5 hidden text-xs text-slate-600 sm:block">{description}</span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
 
             {/* CONVERSION MODE */}
             <div className="mt-6 rounded-[24px] border border-slate-200 bg-slate-50/70 p-5 md:p-6">
@@ -2307,56 +2436,15 @@ export default function PdfToExcelPage() {
 
               <div className="mx-auto mt-6 grid max-w-3xl gap-4 md:grid-cols-2">
 
-                {/* KEEP STYLE AND LAYOUT */}
-                <button
-                  type="button"
-                  onClick={() =>
-                    setConversionMode("layout")
-                  }
-                  className={`group relative rounded-[22px] border-2 p-6 text-left transition duration-200 ${
-                    conversionMode === "layout"
-                      ? "border-orange-500 bg-orange-50 shadow-[0_12px_30px_rgba(249,115,22,0.12)]"
-                      : "border-slate-200 bg-white hover:-translate-y-0.5 hover:border-orange-300 hover:shadow-md"
-                  }`}
-                >
-                  {conversionMode === "layout" && (
-                    <div className="absolute right-4 top-4 flex h-7 w-7 items-center justify-center rounded-full bg-orange-500 text-white">
-                      <Check size={16} strokeWidth={3} />
-                    </div>
-                  )}
-
-                  <div
-                    className={`flex h-12 w-12 items-center justify-center rounded-xl ${
-                      conversionMode === "layout"
-                        ? "bg-orange-500 text-white"
-                        : "bg-slate-100 text-slate-700 group-hover:bg-orange-50 group-hover:text-orange-500"
-                    }`}
-                  >
-                    <LayoutTemplate size={23} />
-                  </div>
-
-                  <h3 className="mt-5 text-lg font-bold text-slate-950">
-                    Keep style and layout
-                  </h3>
-
-                  <p className="mt-2 text-sm leading-6 text-slate-500">
-                    Best for documents containing both text
-                    paragraphs and table data. Preserve the
-                    original structure as closely as possible.
-                  </p>
-
-                  <div className="mt-5 inline-flex items-center gap-2 text-sm font-bold text-orange-500">
-                    Text + tables
-                    <span>{"\u2192"}</span>
-                  </div>
-                </button>
-
                 {/* OPTIMIZED FOR TABLES */}
                 <button
                   type="button"
-                  onClick={() =>
-                    setConversionMode("tables")
-                  }
+                  disabled={converting}
+                  aria-pressed={conversionMode === "tables"}
+                  onClick={() => {
+                    clearResult();
+                    setConversionMode("tables");
+                  }}
                   className={`group relative rounded-[22px] border-2 p-6 text-left transition duration-200 ${
                     conversionMode === "tables"
                       ? "border-orange-500 bg-orange-50 shadow-[0_12px_30px_rgba(249,115,22,0.12)]"
@@ -2395,8 +2483,60 @@ export default function PdfToExcelPage() {
                   </div>
                 </button>
 
+                {/* KEEP STYLE AND LAYOUT */}
+                <button
+                  type="button"
+                  disabled={converting}
+                  aria-pressed={conversionMode === "layout"}
+                  onClick={() => {
+                    clearResult();
+                    setConversionMode("layout");
+                  }}
+                  className={`group relative rounded-[22px] border-2 p-6 text-left transition duration-200 ${
+                    conversionMode === "layout"
+                      ? "border-orange-500 bg-orange-50 shadow-[0_12px_30px_rgba(249,115,22,0.12)]"
+                      : "border-slate-200 bg-white hover:-translate-y-0.5 hover:border-orange-300 hover:shadow-md"
+                  }`}
+                >
+                  {conversionMode === "layout" && (
+                    <div className="absolute right-4 top-4 flex h-7 w-7 items-center justify-center rounded-full bg-orange-500 text-white">
+                      <Check size={16} strokeWidth={3} />
+                    </div>
+                  )}
+
+                  <div
+                    className={`flex h-12 w-12 items-center justify-center rounded-xl ${
+                      conversionMode === "layout"
+                        ? "bg-orange-500 text-white"
+                        : "bg-slate-100 text-slate-700 group-hover:bg-orange-50 group-hover:text-orange-500"
+                    }`}
+                  >
+                    <LayoutTemplate size={23} />
+                  </div>
+
+                  <h3 className="mt-5 text-lg font-bold text-slate-950">
+                    Keep style and layout
+                  </h3>
+
+                  <p className="mt-2 text-sm leading-6 text-slate-500">
+                    Best for documents containing both text
+                    paragraphs and table data. Preserve the
+                    original structure as closely as possible.
+                  </p>
+
+                  <div className="mt-5 inline-flex items-center gap-2 text-sm font-bold text-orange-500">
+                    Text + tables
+                    <span>{"\u2192"}</span>
+                  </div>
+                </button>
+
               </div>
             </div>
+
+            {/* SHEET OUTPUT NOTES */}
+            <p className="mt-3 text-sm text-slate-500">
+              Single Sheet keeps page headers and footers. Column alignment depends on the PDF structure. Scanned text requires OCR and is not extracted by this tool.
+            </p>
 
             {/* PREVIEW */}
             <div className="mt-6 overflow-hidden rounded-[24px] border border-slate-200 bg-slate-100/80">
