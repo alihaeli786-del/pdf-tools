@@ -42,6 +42,42 @@ type PdfOperatorValue =
 type PdfOperatorArgs =
   PdfOperatorValue[];
 
+type PdfTextContentResult = Awaited<
+  ReturnType<import("pdfjs-dist").PDFPageProxy["getTextContent"]>
+>;
+
+// Read the same PDF.js text chunks without requiring stream async iteration.
+const readPdfTextContent = async (
+  page: import("pdfjs-dist").PDFPageProxy
+): Promise<PdfTextContentResult> => {
+  // PDF.js handles pure XFA forms without reading a text stream.
+  if (page.isPureXfa) {
+    return page.getTextContent();
+  }
+
+  const reader = page.streamTextContent().getReader();
+  const textContent: PdfTextContentResult = {
+    items: [],
+    styles: Object.create(null),
+    lang: null,
+  };
+
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+
+      textContent.lang ??= value.lang;
+      Object.assign(textContent.styles, value.styles);
+      textContent.items.push(...value.items);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  return textContent;
+};
+
 export default function PdfToExcelPage() {
   const inputRef =
     useRef<HTMLInputElement>(null);
@@ -639,7 +675,7 @@ export default function PdfToExcelPage() {
           });
 
         const textContent =
-          await page.getTextContent();
+          await readPdfTextContent(page);
 
         const worksheet = combinedWorksheet ??
           workbook.addWorksheet(`Page ${pageNumber}`);
@@ -1941,7 +1977,7 @@ export default function PdfToExcelPage() {
           );
 
         const textContent =
-          await page.getTextContent();
+          await readPdfTextContent(page);
 
         const items: PdfTextItem[] = [];
 
